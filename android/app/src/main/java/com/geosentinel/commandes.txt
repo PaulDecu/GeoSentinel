@@ -1,0 +1,54 @@
+Relancer Metro proprement :
+npm start -- --reset-cache
+
+
+Dans un autre terminal, relancer l'app :
+npx react-native run-android
+
+
+# Rebuild
+cd android
+./gradlew clean
+cd ..
+npx react-native run-android
+
+
+
+Regarder les logs natifs Android pour voir l'erreur exacte :
+adb logcat *:E | grep -i "location\|permission\|gms"
+
+logs :
+npx react-native log-android
+
+Ou directement avec adb : adb logcat | grep -E "ReactNative|LocationService"
+
+Ou pour voir TOUS les logs : adb logcat
+
+Pour voir l'erreur de crash spécifique : adb logcat *:E
+
+
+==============================================================
+
+Étape 1 : Créer le bundle manuellement Lance cette commande (à la racine du projet) pour packager le JS dans le dossier Android :
+
+
+npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res
+
+
+Étape 2 : Générer l'APK
+
+Bash
+cd android
+./gradlew assembleDebug
+L'APK généré dans android/app/build/outputs/apk/debug/app-debug.apk sera désormais autonome.
+
+
+--------------------------------------------------------
+gemini ;
+Générer le bundle (indispensable pour l'APK autonome) :
+
+npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output 	android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res
+
+Compiler l'APK :
+cd android
+./gradlew assembleRelease

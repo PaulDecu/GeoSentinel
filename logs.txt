@@ -1,0 +1,103 @@
+info Starting logkitty
+[2m[08:29:30][22m I | [1mReactNativeJS[22m ▶︎ Running "GestionRisquesMobileV2_NEW" with {"rootTag":1,"initialProps":{},"fabric":true}
+
+[2m[08:29:33][22m I | [1mReactNative[22m ▶︎ [GESTURE HANDLER] Initialize gesture handler for root view com.facebook.react.runtime.ReactSurfaceView{c07ff84 V.E...... ......ID 0,0-1080,2201 #1}
+
+[2m[08:29:33][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mInteractionManager has been deprecated and will be removed in a future release. Please refactor long tasks into smaller ones, and  use 'requestIdleCallback' instead.[39m
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ 🔔 Initialisation du service de notifications...
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ 🧹 Nettoyage des anciens canaux...
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ ✅ Canal supprimé: risk-alerts
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ ✅ Canal supprimé: risk-alerts-v2
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ ✅ Canal supprimé: risk-alerts-v3
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ ✅ Canal supprimé: risk-alerts-v4
+                             [2m└ [22m✅ Canal supprimé: risk-alerts-lockscreen
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ ✅ Canal supprimé: default
+
+[2m[08:46:47][22m I | [1mReactNativeJS[22m ▶︎ ✅ Nettoyage terminé
+
+[2m[08:46:52][22m I | [1mReactNativeJS[22m ▶︎ ✅ Permissions notifications accordées
+
+[2m[08:46:52][22m I | [1mReactNativeJS[22m ▶︎ 📱 Configuration canal Android...
+
+[2m[08:46:52][22m I | [1mReactNativeJS[22m ▶︎ ✅ Canal créé: risk-alerts-final
+                             [2m└ [22m✅ Service de notifications initialisé avec succès
+
+[2m[08:46:52][22m I | [1mReactNativeJS[22m ▶︎ 📍 Demande position GPS...
+
+[2m[08:46:59][22m I | [1mReactNativeJS[22m ▶︎ '✅ Position GPS obtenue:', '43.5287', '3.9294'
+
+[2m[08:46:59][22m I | [1mReactNativeJS[22m ▶︎ 📍 4 risques détectés dans 100m
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ 🚀 DÉMARRAGE SERVICE NATIF ANDROID
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ 🛡️ Service en arrière-plan avec notification permanente
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ ✅ Intervalle sauvegardé: 10000ms
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ 📝 Type de tournée sauvegardé: voiture
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ ⏱️ Intervalle de tâche: 10000ms (10s)
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ ✅ Module natif disponible
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ ✅ Service natif démarré - Survie illimitée en arrière-plan !
+
+[2m[08:47:32][22m I | [1mReactNativeJS[22m ▶︎ 🛡️ Notification permanente "Gestion Risques Active" devrait être visible
+
+[2m[08:47:33][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚀 Headless JS Task démarré
+
+[2m[08:47:33][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚗 Configuration : En voiture (rayon: 200m, refresh: 2min)
+
+[2m[08:47:34][22m I | [1mReactNativeJS[22m ▶︎ 🔍 DEBUG - Intervalle en mémoire: 10000
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] 📍 Position: 43.5287, 3.9294
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] date : 05/02 08:47:38 appel nearby_v2
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] ✅ Cache: 8 risques
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚨 Notification risque 36
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚨 Notification risque 33
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚨 Notification risque 6
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚨 Notification risque 22
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚨 Notification risque 25
+
+[2m[08:47:38][22m I | [1mReactNativeJS[22m ▶︎ [BG] ⚠️ 5 risque(s) détecté(s) dans 200m
+
+[2m[08:48:33][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚀 Headless JS Task démarré
+
+[2m[08:48:33][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚗 Configuration : En voiture (rayon: 200m, refresh: 2min)
+
+[2m[08:48:37][22m I | [1mReactNativeJS[22m ▶︎ [BG] 📍 Position: 43.5287, 3.9294
+
+[2m[08:48:37][22m I | [1mReactNativeJS[22m ▶︎ [BG] ⏳ Risque 33 - cooldown actif (encore 5min)
+                             [2m│ [22m[BG] ⏳ Risque 6 - cooldown actif (encore 5min)
+                             [2m└ [22m[BG] ⏳ Risque 22 - cooldown actif (encore 5min)
+
+[2m[08:48:37][22m I | [1mReactNativeJS[22m ▶︎ [BG] ⏳ Risque 25 - cooldown actif (encore 5min)
+
+[2m[08:48:37][22m I | [1mReactNativeJS[22m ▶︎ [BG] ⚠️ 5 risque(s) détecté(s) dans 200m
+
+[2m[08:49:33][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚀 Headless JS Task démarré
+
+[2m[08:49:33][22m I | [1mReactNativeJS[22m ▶︎ [BG] 🚗 Configuration : En voiture (rayon: 200m, refresh: 2min)
+
+[2m[08:49:37][22m I | [1mReactNativeJS[22m ▶︎ [BG] 📍 Position: 43.5287, 3.9294
+                             [2m│ [22m[BG] ⏳ Risque 36 - cooldown actif (encore 4min)
+                             [2m│ [22m[BG] ⏳ Risque 33 - cooldown actif (encore 4min)
+                             [2m│ [22m[BG] ⏳ Risque 6 - cooldown actif (encore 4min)
+                             [2m│ [22m[BG] ⏳ Risque 22 - cooldown actif (encore 4min)
+                             [2m│ [22m[BG] ⏳ Risque 25 - cooldown actif (encore 4min)
+                             [2m└ [22m[BG] ⚠️ 5 risque(s) détecté(s) dans 200m
+
