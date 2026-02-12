@@ -1,0 +1,42 @@
+j'avais développé une appli mobile avec du react et du java qui dialoguait avec un backend très proche de celui que nous venons de faire. je veux faire une nouvelle version de cette appli mobile pour qu'elle s'appuie sur notre backend GeoSentinel. Yu vas donc me produire les fichiers que j'incoporerai dans mon projet mobile. le premier écran de l'appli doit être l'écran d'identification de l'utilisateur via adresse mail et saisie de mdp. hashage et connexion au back end pour contrôler la possibilité pour l'utilisateur de se connecter. il y aura aussi sur cet écran un lien html "mot de passe oublié" qui enverra sur le site web à l'adresse de la procédure de réinitialisation du mot de passe. dans mon ancienne appli on utilisait l'identifiant de l'utilisateur, dans la nouvelle c'est son adresse mail qui sert d'identifiant.
+
+ci-dessous l'arborescence projet. la partie java pure permet de mettre en eouvre une tâche de fond en arrière paln qui géolocalise l'utilisateur et lui envoie une notification dès lors qu'il est à une certaine distance d'un risque.
+
+GeoSentinel
+- src
+	- components
+	- navigation
+	- screens
+		CreateRiskScreen javascript
+		ListRisksScreen javascript
+		RiskDetailScreen javascript
+		TestScreen javascript
+	- service
+		api javascript
+		locationBackgroundTask javascript
+		locationService javascript
+		notificationService javascript
+	- utils
+- node_modules
+- ios
+- android
+	- app
+		-src
+			- main
+				-java
+					-com
+						-geosentinel
+							BootReceiver java
+							LocationForegroundService java
+							LocationServiceModule java
+							LocationServicePackage java
+							LocationTaskService java
+							LocationTrackingService java
+							PreferencesModule java
+							PreferencesPackage java
+							MainActivity kt
+							MainApplication kt
+
+app
+index
+package

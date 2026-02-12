@@ -1,15 +1,48 @@
-// services/locationService.js
-// VERSION FINALE avec service Android natif
+// src/services/locationService.ts
 import Geolocation from '@react-native-community/geolocation';
 import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
-import { LOCATION_CONFIG } from '../utils/constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { LocationServiceBridge } = NativeModules;
+const { LocationServiceBridge, PreferencesModule } = NativeModules;
+
+interface LocationPosition {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  timestamp: number;
+}
+
+interface PermissionsStatus {
+  foreground: 'granted' | 'denied' | 'undetermined';
+  background: 'granted' | 'denied' | 'undetermined';
+  isTracking: boolean;
+  canStartTracking: boolean;
+}
+
+interface PermissionResult {
+  status: 'granted' | 'denied';
+}
+
+type TourneeType = 'pieds' | 'velo' | 'voiture';
 
 let isNativeServiceRunning = false;
 
+// Configuration des intervalles selon le type de tournée
+const getTaskInterval = (tourneeType: TourneeType): number => {
+  switch (tourneeType) {
+    case 'pieds':
+      return 30000; // 30 secondes
+    case 'velo':
+      return 20000; // 20 secondes
+    case 'voiture':
+      return 10000; // 10 secondes
+    default:
+      return 60000; // 60 secondes par défaut
+  }
+};
+
 export const locationService = {
-  getCurrentPosition: async () => {
+  getCurrentPosition: async (): Promise<LocationPosition | null> => {
     try {
       console.log('📍 Demande position GPS...');
       
@@ -48,7 +81,7 @@ export const locationService = {
     }
   },
 
-  checkPermissions: async () => {
+  checkPermissions: async (): Promise<PermissionsStatus> => {
     try {
       if (Platform.OS === 'android') {
         const foreground = await PermissionsAndroid.check(
@@ -84,7 +117,7 @@ export const locationService = {
     }
   },
 
-  requestForegroundPermission: async () => {
+  requestForegroundPermission: async (): Promise<PermissionResult> => {
     try {
       if (Platform.OS === 'android') {
         const granted = await PermissionsAndroid.request(
@@ -110,7 +143,7 @@ export const locationService = {
     }
   },
 
-  requestBackgroundPermission: async () => {
+  requestBackgroundPermission: async (): Promise<PermissionResult> => {
     try {
       if (Platform.OS === 'android') {
         const granted = await PermissionsAndroid.request(
@@ -136,10 +169,31 @@ export const locationService = {
     }
   },
 
-  startBackgroundLocationTracking: async (tourneeType) => {
+  startBackgroundLocationTracking: async (tourneeType: TourneeType): Promise<boolean> => {
     try {
       console.log('🚀 DÉMARRAGE SERVICE NATIF ANDROID');
       console.log('🛡️ Service en arrière-plan avec notification permanente');
+      
+      if (tourneeType) {
+        const taskInterval = getTaskInterval(tourneeType);
+        
+        // Utiliser le module natif au lieu de AsyncStorage
+        if (PreferencesModule) {
+          await PreferencesModule.setTourneeType(tourneeType);
+          await PreferencesModule.setTaskInterval(taskInterval);
+          
+          console.log(`✅ Type de tournée sauvegardé: ${tourneeType}`);
+          console.log(`✅ Intervalle sauvegardé: ${taskInterval}ms (${taskInterval/1000}s)`);
+        } else {
+          console.error('❌ PreferencesModule non disponible !');
+          // Fallback sur AsyncStorage
+          await AsyncStorage.setItem('tourneeType', tourneeType);
+          await AsyncStorage.setItem('taskInterval', String(taskInterval));
+        }
+        
+        // Sauvegarder aussi pour le Headless Task JS
+        await AsyncStorage.setItem('tourneeType', tourneeType);
+      }
       
       const perms = await locationService.checkPermissions();
       if (!perms.canStartTracking) {
@@ -157,6 +211,7 @@ export const locationService = {
       
       // Démarrer le service natif Android
       await LocationServiceBridge.startService();
+      
       isNativeServiceRunning = true;
       
       console.log('✅ Service natif démarré - Survie illimitée en arrière-plan !');
@@ -169,21 +224,39 @@ export const locationService = {
     }
   },
 
-  stopBackgroundLocationTracking: async () => {
+  stopBackgroundLocationTracking: async (): Promise<void> => {
     try {
       if (LocationServiceBridge && isNativeServiceRunning) {
         await LocationServiceBridge.stopService();
         isNativeServiceRunning = false;
         console.log('✅ Service natif arrêté');
       }
+      
+      // Nettoyer les données sauvegardées
+      await AsyncStorage.removeItem('tourneeType');
+      await AsyncStorage.removeItem('taskInterval');
+      console.log('🧹 Configuration supprimée');
     } catch (error) {
       console.error('❌ Erreur arrêt:', error);
       throw error;
     }
   },
 
-  isTrackingActive: async () => {
-    return isNativeServiceRunning;
+  isTrackingActive: async (): Promise<boolean> => {
+    // Vérifier si le service a sauvegardé des données = il est actif
+    try {
+      const savedType = await AsyncStorage.getItem('tourneeType');
+      const isActive = savedType !== null && savedType !== '';
+      
+      // Synchroniser la variable locale
+      isNativeServiceRunning = isActive;
+      
+      console.log('🔍 isTrackingActive - tourneeType:', savedType, '→ isActive:', isActive);
+      return isActive;
+    } catch (error) {
+      console.error('❌ Erreur isTrackingActive:', error);
+      return false;
+    }
   },
 };
 

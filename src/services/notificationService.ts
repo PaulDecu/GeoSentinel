@@ -1,13 +1,23 @@
-// services/notificationService.js
-// VERSION React Native CLI avec @notifee/react-native
+// src/services/notificationService.ts
 import notifee, { AndroidImportance, AndroidVisibility } from '@notifee/react-native';
 import { Platform } from 'react-native';
 
 const CHANNEL_ID = 'risk-alerts-final';
 
+interface RiskData {
+  id: string | number;
+  type_risque: string;
+  adresse?: string;
+  [key: string]: any;
+}
+
+interface NotificationData {
+  [key: string]: string;
+}
+
 export const notificationService = {
-  // ✅ Nettoyer les anciens canaux
-  cleanupOldChannels: async () => {
+  // Nettoyer les anciens canaux
+  cleanupOldChannels: async (): Promise<void> => {
     if (Platform.OS === 'android') {
       console.log('🧹 Nettoyage des anciens canaux...');
       
@@ -33,15 +43,15 @@ export const notificationService = {
     }
   },
 
-  // ✅ Initialiser le service
-  initialize: async () => {
+  // Initialiser le service
+  initialize: async (): Promise<boolean> => {
     try {
       console.log('🔔 Initialisation du service de notifications...');
       
-      // ✅ 1. Nettoyer les anciens canaux
+      // 1. Nettoyer les anciens canaux
       await notificationService.cleanupOldChannels();
       
-      // ✅ 2. Demander les permissions
+      // 2. Demander les permissions
       const settings = await notifee.requestPermission();
       
       if (settings.authorizationStatus < 1) {
@@ -51,7 +61,7 @@ export const notificationService = {
 
       console.log('✅ Permissions notifications accordées');
 
-      // ✅ 3. Créer le canal Android
+      // 3. Créer le canal Android
       if (Platform.OS === 'android') {
         console.log('📱 Configuration canal Android...');
         
@@ -80,8 +90,8 @@ export const notificationService = {
     }
   },
 
-  // ✅ Envoyer une alerte de risque
-  sendRiskAlert: async (risque, distance) => {
+  // Envoyer une alerte de risque
+  sendRiskAlert: async (risque: RiskData, distance: number): Promise<boolean> => {
     try {
       console.log(`🚨 Envoi alerte: ${risque.type_risque} à ${distance}m`);
 
@@ -108,7 +118,7 @@ export const notificationService = {
           category: 'alarm',
           showTimestamp: true,
           color: '#FF0000',
-          smallIcon: 'ic_notification', // Assurez-vous d'avoir cette icône
+          smallIcon: 'ic_notification',
         },
         ios: {
           sound: 'default',
@@ -121,16 +131,16 @@ export const notificationService = {
         },
       });
 
-      console.log(' Alerte envoyée avec son');
+      console.log('✅ Alerte envoyée avec son');
       return true;
     } catch (error) {
-      console.error(' Erreur envoi alerte:', error);
+      console.error('❌ Erreur envoi alerte:', error);
       return false;
     }
   },
 
   // Envoyer une notification simple
-  sendNotification: async (title, body, data = {}) => {
+  sendNotification: async (title: string, body: string, data: NotificationData = {}): Promise<boolean> => {
     try {
       await notifee.displayNotification({
         title,
@@ -155,7 +165,7 @@ export const notificationService = {
   },
 
   // Vérifier les permissions
-  checkPermissions: async () => {
+  checkPermissions: async (): Promise<boolean> => {
     try {
       const settings = await notifee.getNotificationSettings();
       const granted = settings.authorizationStatus >= 1;
@@ -168,7 +178,7 @@ export const notificationService = {
   },
 
   // Demander les permissions
-  requestPermissions: async () => {
+  requestPermissions: async (): Promise<boolean> => {
     try {
       const settings = await notifee.requestPermission();
       return settings.authorizationStatus >= 1;
@@ -179,7 +189,7 @@ export const notificationService = {
   },
 
   // Annuler toutes les notifications
-  cancelAllNotifications: async () => {
+  cancelAllNotifications: async (): Promise<void> => {
     try {
       await notifee.cancelAllNotifications();
       console.log('✅ Toutes les notifications annulées');
@@ -188,8 +198,8 @@ export const notificationService = {
     }
   },
 
-  // ✅ Tester une notification
-  sendTestNotification: async () => {
+  // Tester une notification
+  sendTestNotification: async (): Promise<boolean> => {
     try {
       console.log('🧪 Envoi notification de test avec SON...');
       
@@ -220,7 +230,7 @@ export const notificationService = {
   },
 
   // Lister les canaux (debug)
-  listChannels: async () => {
+  listChannels: async (): Promise<any[]> => {
     if (Platform.OS === 'android') {
       try {
         const channels = await notifee.getChannels();
@@ -238,7 +248,7 @@ export const notificationService = {
   },
 
   // Recréer le canal
-  recreateChannel: async () => {
+  recreateChannel: async (): Promise<boolean> => {
     if (Platform.OS === 'android') {
       console.log('🔄 Recréation complète du canal...');
       
@@ -272,8 +282,8 @@ export const notificationService = {
 };
 
 // Helper pour les labels
-const getRiskTypeLabel = (typeRisque) => {
-  const riskTypes = {
+const getRiskTypeLabel = (typeRisque: string): string => {
+  const riskTypes: Record<string, string> = {
     'chien méchant': '🐕 Chien méchant',
     'point de deal': '💊 Point de deal',
     'accès dangereux': '⚠️ Accès dangereux',

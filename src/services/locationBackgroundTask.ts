@@ -1,27 +1,51 @@
-// services/locationBackgroundTask.js
-// Headless JS Task - S'exécute en arrière-plan avec configuration dynamique selon la tournée
+// src/services/locationBackgroundTask.ts
+// Headless JS Task - S'exécute en arrière-plan avec configuration dynamique
 import Geolocation from '@react-native-community/geolocation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { risquesAPI } from './api';
-import notifee from '@notifee/react-native';
+import { apiClient } from './api';
+import notifee, { AndroidImportance } from '@notifee/react-native';
 
-let cachedRisks = [];
+interface Risk {
+  id: string;
+  title: string;
+  category: string;
+  severity: string;
+  latitude: number;
+  longitude: number;
+  description?: string;
+  distance?: number;
+}
+
+interface LocationConfig {
+  radiusRecherche: number; // km
+  alertRadius: number; // m
+  updateInterval: number; // ms
+}
+
+interface CachedPosition {
+  latitude: number;
+  longitude: number;
+}
+
+type TourneeType = 'pieds' | 'velo' | 'voiture';
+
+let cachedRisks: Risk[] = [];
 let lastApiCall = 0;
-let lastKnownPosition = null;
+let lastKnownPosition: CachedPosition | null = null;
 
 // Valeurs par défaut (modifiées dynamiquement selon le type de tournée)
-let LOCATION_CONFIG = {
+let LOCATION_CONFIG: LocationConfig = {
   radiusRecherche: 3, // km
   alertRadius: 100, // m
   updateInterval: 180000, // 3 min
 };
 
-const notifiedRisks = new Set();
-const notificationTimestamps = new Map();
+const notifiedRisks = new Set<string>();
+const notificationTimestamps = new Map<string, number>();
 const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
 // Configuration selon le type de tournée
-const configureTourneeParameters = (tourneeType) => {
+const configureTourneeParameters = (tourneeType: TourneeType): void => {
   switch (tourneeType) {
     case 'pieds':
       LOCATION_CONFIG.updateInterval = 5 * 60 * 1000; // 5 minutes
@@ -46,7 +70,12 @@ const configureTourneeParameters = (tourneeType) => {
   }
 };
 
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
+const calculateDistance = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number => {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -57,22 +86,23 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
     Math.sin(dLon / 2) *
     Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c * 1000;
+  return R * c * 1000; // en mètres
 };
 
-const refreshRiskCache = async (latitude, longitude) => {
+const refreshRiskCache = async (latitude: number, longitude: number): Promise<void> => {
   try {
     const now = new Date();
     const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    console.log(`[BG] date : ${dateStr} appel nearby_v2`);
+    console.log(`[BG] date : ${dateStr} appel getNearbyRisks`);
     
-    const response = await risquesAPI.nearby_V2(
+    // Appel API avec le nouveau client TypeScript
+    const risks = await apiClient.getNearbyRisks(
       latitude,
       longitude,
-      LOCATION_CONFIG.radiusRecherche
+      LOCATION_CONFIG.radiusRecherche * 1000 // Convertir km en mètres
     );
     
-    cachedRisks = response.risques || [];
+    cachedRisks = risks || [];
     lastApiCall = Date.now();
     lastKnownPosition = { latitude, longitude };
     console.log(`[BG] ✅ Cache: ${cachedRisks.length} risques`);
@@ -81,7 +111,7 @@ const refreshRiskCache = async (latitude, longitude) => {
   }
 };
 
-const shouldRefreshCache = (latitude, longitude) => {
+const shouldRefreshCache = (latitude: number, longitude: number): boolean => {
   if (cachedRisks.length === 0 || !lastKnownPosition) return true;
   if (Date.now() - lastApiCall > LOCATION_CONFIG.updateInterval) return true;
   
@@ -95,21 +125,24 @@ const shouldRefreshCache = (latitude, longitude) => {
   return distance > (LOCATION_CONFIG.radiusRecherche - 1) * 1000;
 };
 
-const checkRisksFromCache = async (latitude, longitude) => {
-  const nearbyRisks = [];
+const checkRisksFromCache = async (
+  latitude: number,
+  longitude: number
+): Promise<Risk[]> => {
+  const nearbyRisks: Risk[] = [];
   const now = Date.now();
   
   // 1. Trouver tous les risques à proximité (rayon dynamique selon la tournée)
-  cachedRisks.forEach(risque => {
+  cachedRisks.forEach(risk => {
     const distance = calculateDistance(
       latitude,
       longitude,
-      risque.latitude,
-      risque.longitude
+      risk.latitude,
+      risk.longitude
     );
     
     if (distance <= LOCATION_CONFIG.alertRadius) {
-      nearbyRisks.push({ ...risque, distance });
+      nearbyRisks.push({ ...risk, distance });
     }
   });
   
@@ -117,26 +150,26 @@ const checkRisksFromCache = async (latitude, longitude) => {
   const nearbyRiskIds = new Set(nearbyRisks.map(r => r.id));
   
   // 3. Envoyer les notifications (avec système de cache anti-spam)
-  for (const risque of nearbyRisks) {
-    const lastNotification = notificationTimestamps.get(risque.id) || 0;
+  for (const risk of nearbyRisks) {
+    const lastNotification = notificationTimestamps.get(risk.id) || 0;
     const timeSinceLastNotif = now - lastNotification;
     const canNotify = timeSinceLastNotif > NOTIFICATION_COOLDOWN;
     
     // Envoyer si :
     // - Jamais notifié OU
     // - Cooldown de 5 min écoulé
-    if (canNotify || !notifiedRisks.has(risque.id)) {
+    if (canNotify || !notifiedRisks.has(risk.id)) {
       const minutesSince = Math.floor(timeSinceLastNotif / 1000 / 60);
-      console.log(`[BG] 🚨 Notification risque ${risque.id}`);
+      console.log(`[BG] 🚨 Notification risque ${risk.id}`);
       
       // Envoyer la notification avec @notifee
       try {
         await notifee.displayNotification({
-          title: `⚠️ Risque : ${risque.type_risque}`,
-          body: `À ${Math.round(risque.distance)}m - ${risque.adresse}`,
+          title: `⚠️ Risque : ${risk.category}`,
+          body: `À ${Math.round(risk.distance || 0)}m - ${risk.title}`,
           android: {
             channelId: 'risk-alerts-final',
-            importance: 4, // HIGH
+            importance: AndroidImportance.HIGH,
             vibrationPattern: [300, 500],
             sound: 'default',
             pressAction: {
@@ -146,19 +179,19 @@ const checkRisksFromCache = async (latitude, longitude) => {
         });
         
         // Mettre à jour le cache
-        notifiedRisks.add(risque.id);
-        notificationTimestamps.set(risque.id, now);
+        notifiedRisks.add(risk.id);
+        notificationTimestamps.set(risk.id, now);
       } catch (error) {
         console.error('[BG] Erreur notification:', error);
       }
     } else {
       const remainingMinutes = Math.ceil((NOTIFICATION_COOLDOWN - timeSinceLastNotif) / 1000 / 60);
-      console.log(`[BG] ⏳ Risque ${risque.id} - cooldown actif (encore ${remainingMinutes}min)`);
+      console.log(`[BG] ⏳ Risque ${risk.id} - cooldown actif (encore ${remainingMinutes}min)`);
     }
   }
   
   // 4. Nettoyer le cache : retirer les risques qui ne sont plus à proximité
-  const removedRisks = [];
+  const removedRisks: string[] = [];
   notifiedRisks.forEach(riskId => {
     if (!nearbyRiskIds.has(riskId)) {
       removedRisks.push(riskId);
@@ -175,14 +208,14 @@ const checkRisksFromCache = async (latitude, longitude) => {
 };
 
 // La tâche en arrière-plan
-export const locationBackgroundTask = async (taskData) => {
+export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   console.log('[BG] 🚀 Headless JS Task démarré');
   
   // Lire le type de tournée depuis AsyncStorage
   try {
     const tourneeType = await AsyncStorage.getItem('tourneeType');
     if (tourneeType) {
-      configureTourneeParameters(tourneeType);
+      configureTourneeParameters(tourneeType as TourneeType);
     }
   } catch (error) {
     console.error('[BG] Erreur lecture tourneeType:', error);
@@ -225,3 +258,6 @@ export const locationBackgroundTask = async (taskData) => {
     );
   });
 };
+
+// Export par défaut pour l'enregistrement du Headless Task
+export default locationBackgroundTask;

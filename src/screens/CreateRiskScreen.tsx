@@ -1,0 +1,422 @@
+// src/screens/CreateRiskScreen.tsx
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
+import { apiClient, getErrorMessage } from '../services/api';
+import { locationService } from '../services/locationService';
+import { COLORS, RISK_CATEGORIES, RISK_SEVERITIES, VALIDATION, MESSAGES } from '../utils/constants';
+import { RiskCategory, RiskSeverity } from '../types';
+
+interface Props {
+  navigation: any;
+}
+
+export default function CreateRiskScreen({ navigation }: Props) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<RiskCategory | ''>('');
+  const [severity, setSeverity] = useState<RiskSeverity | ''>('');
+  const [gpsPosition, setGpsPosition] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getGPSPosition();
+  }, []);
+
+  const getGPSPosition = async () => {
+    setGettingLocation(true);
+    setError('');
+    try {
+      const position = await locationService.getCurrentPosition();
+      setGpsPosition(position);
+    } catch (error) {
+      setError(MESSAGES.errors.location);
+      Alert.alert(
+        'Erreur',
+        "Impossible d'obtenir votre position GPS. Vérifiez les permissions."
+      );
+    } finally {
+      setGettingLocation(false);
+    }
+  };
+
+  const validateForm = () => {
+    if (!title.trim() || title.length < VALIDATION.titleMinLength) {
+      setError(`Le titre doit contenir au moins ${VALIDATION.titleMinLength} caractères`);
+      return false;
+    }
+
+    if (title.length > VALIDATION.titleMaxLength) {
+      setError(`Le titre ne doit pas dépasser ${VALIDATION.titleMaxLength} caractères`);
+      return false;
+    }
+
+    if (!gpsPosition) {
+      setError('Position GPS non disponible');
+      return false;
+    }
+
+    if (!category) {
+      setError('La catégorie est obligatoire');
+      return false;
+    }
+
+    if (!severity) {
+      setError('La sévérité est obligatoire');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleCreate = async () => {
+    setError('');
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await apiClient.createRisk({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        category: category as RiskCategory,
+        severity: severity as RiskSeverity,
+        latitude: gpsPosition!.latitude,
+        longitude: gpsPosition!.longitude,
+      });
+
+      Alert.alert('Succès', MESSAGES.success.riskCreated, [
+        {
+          text: 'OK',
+          onPress: () => navigation.goBack(),
+        },
+      ]);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setError(message);
+      Alert.alert('Erreur', message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ScrollView style={styles.container}>
+      <View style={styles.content}>
+        {/* Titre */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Titre *</Text>
+          <TextInput
+            style={styles.input}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Ex: Chien dangereux, Trou dans la chaussée..."
+            maxLength={VALIDATION.titleMaxLength}
+          />
+          <Text style={styles.charCount}>
+            {title.length}/{VALIDATION.titleMaxLength}
+          </Text>
+        </View>
+
+        {/* Position GPS */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Position GPS *</Text>
+          <View style={styles.gpsContainer}>
+            {gettingLocation ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : gpsPosition ? (
+              <Text style={styles.gpsText}>
+                📍 {gpsPosition.latitude.toFixed(6)}, {gpsPosition.longitude.toFixed(6)}
+              </Text>
+            ) : (
+              <Text style={styles.errorText}>Position non disponible</Text>
+            )}
+            <TouchableOpacity
+              style={styles.gpsButton}
+              onPress={getGPSPosition}
+              disabled={gettingLocation}
+            >
+              <Text style={styles.gpsButtonText}>
+                {gettingLocation ? 'Recherche...' : '🔄 Actualiser'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Catégorie */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Catégorie *</Text>
+          <View style={styles.optionsContainer}>
+            {RISK_CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat.value}
+                style={[
+                  styles.optionButton,
+                  category === cat.value && {
+                    backgroundColor: cat.color + '20',
+                    borderColor: cat.color,
+                    borderWidth: 2,
+                  },
+                ]}
+                onPress={() => setCategory(cat.value)}
+              >
+                <Text style={styles.optionIcon}>{cat.icon}</Text>
+                <View style={styles.optionContent}>
+                  <Text
+                    style={[
+                      styles.optionText,
+                      category === cat.value && {
+                        color: cat.color,
+                        fontWeight: 'bold',
+                      },
+                    ]}
+                  >
+                    {cat.label}
+                  </Text>
+                  <Text style={styles.optionDescription}>{cat.description}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Sévérité */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Sévérité *</Text>
+          <View style={styles.severityContainer}>
+            {RISK_SEVERITIES.map((sev) => (
+              <TouchableOpacity
+                key={sev.value}
+                style={[
+                  styles.severityButton,
+                  severity === sev.value && {
+                    backgroundColor: sev.bgColor,
+                    borderColor: sev.color,
+                    borderWidth: 2,
+                  },
+                ]}
+                onPress={() => setSeverity(sev.value)}
+              >
+                <Text style={styles.severityIcon}>{sev.icon}</Text>
+                <Text
+                  style={[
+                    styles.severityText,
+                    severity === sev.value && {
+                      color: sev.color,
+                      fontWeight: 'bold',
+                    },
+                  ]}
+                >
+                  {sev.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Description */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Détails supplémentaires..."
+            multiline
+            numberOfLines={4}
+            maxLength={VALIDATION.descriptionMaxLength}
+          />
+          <Text style={styles.charCount}>
+            {description.length}/{VALIDATION.descriptionMaxLength}
+          </Text>
+        </View>
+
+        {/* Message d'erreur */}
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>⚠️ {error}</Text>
+          </View>
+        ) : null}
+
+        {/* Bouton Créer */}
+        <TouchableOpacity
+          style={[
+            styles.createButton,
+            (!gpsPosition || !title || !category || !severity || loading) &&
+              styles.createButtonDisabled,
+          ]}
+          onPress={handleCreate}
+          disabled={!gpsPosition || !title || !category || !severity || loading}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.createButtonText}>✅ Créer le risque</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  content: {
+    padding: 20,
+  },
+  formGroup: {
+    marginBottom: 25,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 10,
+  },
+  input: {
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 15,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  textArea: {
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  charCount: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginTop: 5,
+    textAlign: 'right',
+  },
+  gpsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fef3c7',
+    padding: 15,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.warning,
+  },
+  gpsText: {
+    fontSize: 14,
+    color: COLORS.text,
+    flex: 1,
+    fontWeight: '600',
+  },
+  gpsButton: {
+    backgroundColor: COLORS.secondary,
+    padding: 10,
+    borderRadius: 10,
+    marginLeft: 10,
+  },
+  gpsButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  optionsContainer: {
+    gap: 12,
+  },
+  optionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+  },
+  optionIcon: {
+    fontSize: 32,
+    marginRight: 15,
+  },
+  optionContent: {
+    flex: 1,
+  },
+  optionText: {
+    fontSize: 16,
+    color: COLORS.text,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  optionDescription: {
+    fontSize: 12,
+    color: COLORS.textLight,
+  },
+  severityContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  severityButton: {
+    flex: 1,
+    minWidth: '45%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    gap: 8,
+  },
+  severityIcon: {
+    fontSize: 20,
+  },
+  severityText: {
+    fontSize: 14,
+    color: COLORS.text,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    backgroundColor: '#fee2e2',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.danger,
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: 14,
+  },
+  createButton: {
+    backgroundColor: COLORS.success,
+    padding: 18,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  createButtonDisabled: {
+    backgroundColor: COLORS.disabled,
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+});
