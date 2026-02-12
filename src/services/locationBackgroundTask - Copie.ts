@@ -1,8 +1,8 @@
 // src/services/locationBackgroundTask.ts
-// Headless JS Task - S'exécute en arrière-plan avec configuration dynamique depuis l'API
+// Headless JS Task - S'exécute en arrière-plan avec configuration depuis AsyncStorage
 import Geolocation from '@react-native-community/geolocation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiClient, SystemSetting, TourneeType } from './api';
+import { apiClient, TourneeType } from './api';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 
 interface Risk {
@@ -31,7 +31,7 @@ let cachedRisks: Risk[] = [];
 let lastApiCall = 0;
 let lastKnownPosition: CachedPosition | null = null;
 
-// Valeurs par défaut (modifiées dynamiquement selon le type de tournée)
+// Valeurs par défaut
 let LOCATION_CONFIG: LocationConfig = {
   radiusRecherche: 3, // km
   alertRadius: 100, // m
@@ -42,64 +42,33 @@ const notifiedRisks = new Set<string>();
 const notificationTimestamps = new Map<string, number>();
 const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
-// ✅ Configuration depuis l'API selon le type de tournée
-const configureTourneeParameters = async (tourneeType: TourneeType): Promise<void> => {
+// ✅ OPTIMISATION: Lire les paramètres depuis AsyncStorage (déjà récupérés au démarrage)
+const loadConfigFromStorage = async (): Promise<void> => {
   try {
-    console.log(`[BG] 📡 Récupération paramètres API pour: ${tourneeType}`);
+    console.log('[BG] 📖 Lecture configuration depuis AsyncStorage');
     
-    const setting: SystemSetting | null = await apiClient.getSystemSettingByType(tourneeType);
+    const tourneeType = await AsyncStorage.getItem('tourneeType');
+    const apiCallDelayMinutes = await AsyncStorage.getItem('apiCallDelayMinutes');
+    const alertRadiusMeters = await AsyncStorage.getItem('alertRadiusMeters');
+    const riskLoadZoneKm = await AsyncStorage.getItem('riskLoadZoneKm');
     
-    if (setting) {
-      // Utiliser les paramètres depuis l'API
-      LOCATION_CONFIG.updateInterval = setting.apiCallDelayMinutes * 60 * 1000; // minutes → ms
-      LOCATION_CONFIG.alertRadius = setting.alertRadiusMeters; // déjà en mètres
-      LOCATION_CONFIG.radiusRecherche = setting.riskLoadZoneKm; // déjà en km
+    if (apiCallDelayMinutes && alertRadiusMeters && riskLoadZoneKm) {
+      // Utiliser les paramètres sauvegardés
+      LOCATION_CONFIG.updateInterval = parseInt(apiCallDelayMinutes) * 60 * 1000;
+      LOCATION_CONFIG.alertRadius = parseInt(alertRadiusMeters);
+      LOCATION_CONFIG.radiusRecherche = parseInt(riskLoadZoneKm);
       
-      console.log(`[BG] ✅ Configuration depuis API:`);
-      console.log(`[BG]    - Type: ${setting.label}`);
+      console.log(`[BG] ✅ Configuration chargée depuis storage:`);
+      console.log(`[BG]    - Type: ${tourneeType}`);
       console.log(`[BG]    - Rayon alerte: ${LOCATION_CONFIG.alertRadius}m`);
-      console.log(`[BG]    - Refresh API: ${setting.apiCallDelayMinutes}min`);
+      console.log(`[BG]    - Refresh API: ${parseInt(apiCallDelayMinutes)}min`);
       console.log(`[BG]    - Zone recherche: ${LOCATION_CONFIG.radiusRecherche}km`);
-      
-      return;
+    } else {
+      console.warn('[BG] ⚠️ Paramètres manquants dans AsyncStorage, utilisation valeurs par défaut');
+      // Garder les valeurs par défaut
     }
-    
-    // Fallback sur valeurs par défaut si l'API échoue
-    console.warn(`[BG] ⚠️ Pas de paramètres API, utilisation valeurs par défaut`);
-    configureTourneeFallback(tourneeType);
-    
   } catch (error) {
-    console.error('[BG] ❌ Erreur récupération paramètres API:', error);
-    configureTourneeFallback(tourneeType);
-  }
-};
-
-// Fonction fallback avec les anciennes valeurs en dur
-const configureTourneeFallback = (tourneeType: TourneeType): void => {
-  switch (tourneeType) {
-    case 'pieds':
-      LOCATION_CONFIG.updateInterval = 5 * 60 * 1000; // 5 minutes
-      LOCATION_CONFIG.alertRadius = 60; // 60 mètres
-      LOCATION_CONFIG.radiusRecherche = 5; // 5 km
-      console.log('[BG] 🚶 Configuration fallback : À pieds (rayon: 60m, refresh: 5min, zone: 5km)');
-      break;
-    
-    case 'velo':
-      LOCATION_CONFIG.updateInterval = 3 * 60 * 1000; // 3 minutes
-      LOCATION_CONFIG.alertRadius = 100; // 100 mètres
-      LOCATION_CONFIG.radiusRecherche = 10; // 10 km
-      console.log('[BG] 🚴 Configuration fallback : À vélo (rayon: 100m, refresh: 3min, zone: 10km)');
-      break;
-    
-    case 'voiture':
-      LOCATION_CONFIG.updateInterval = 2 * 60 * 1000; // 2 minutes
-      LOCATION_CONFIG.alertRadius = 250; // 250 mètres
-      LOCATION_CONFIG.radiusRecherche = 10; // 10 km
-      console.log('[BG] 🚗 Configuration fallback : En voiture (rayon: 250m, refresh: 2min, zone: 10km)');
-      break;
-    
-    default:
-      console.log('[BG] ⚙️ Configuration par défaut (rayon: 100m, refresh: 3min, zone: 3km)');
+    console.error('[BG] ❌ Erreur lecture configuration:', error);
   }
 };
 
@@ -165,7 +134,7 @@ const checkRisksFromCache = async (
   const nearbyRisks: Risk[] = [];
   const now = Date.now();
   
-  // 1. Trouver tous les risques à proximité (rayon dynamique depuis l'API)
+  // 1. Trouver tous les risques à proximité
   cachedRisks.forEach(risk => {
     const distance = calculateDistance(
       latitude,
@@ -188,14 +157,9 @@ const checkRisksFromCache = async (
     const timeSinceLastNotif = now - lastNotification;
     const canNotify = timeSinceLastNotif > NOTIFICATION_COOLDOWN;
     
-    // Envoyer si :
-    // - Jamais notifié OU
-    // - Cooldown de 5 min écoulé
     if (canNotify || !notifiedRisks.has(risk.id)) {
-      const minutesSince = Math.floor(timeSinceLastNotif / 1000 / 60);
       console.log(`[BG] 🚨 Notification risque ${risk.id}`);
       
-      // Envoyer la notification avec @notifee
       try {
         await notifee.displayNotification({
           title: `⚠️ Risque : ${risk.category}`,
@@ -211,7 +175,6 @@ const checkRisksFromCache = async (
           },
         });
         
-        // Mettre à jour le cache
         notifiedRisks.add(risk.id);
         notificationTimestamps.set(risk.id, now);
       } catch (error) {
@@ -223,7 +186,7 @@ const checkRisksFromCache = async (
     }
   }
   
-  // 4. Nettoyer le cache : retirer les risques qui ne sont plus à proximité
+  // 4. Nettoyer le cache
   const removedRisks: string[] = [];
   notifiedRisks.forEach(riskId => {
     if (!nearbyRiskIds.has(riskId)) {
@@ -244,17 +207,8 @@ const checkRisksFromCache = async (
 export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   console.log('[BG] 🚀 Headless JS Task démarré');
   
-  // ✅ Lire le type de tournée et récupérer les paramètres depuis l'API
-  try {
-    const tourneeType = await AsyncStorage.getItem('tourneeType');
-    if (tourneeType) {
-      await configureTourneeParameters(tourneeType as TourneeType);
-    } else {
-      console.warn('[BG] ⚠️ Pas de type de tournée défini');
-    }
-  } catch (error) {
-    console.error('[BG] Erreur lecture tourneeType:', error);
-  }
+  // ✅ OPTIMISATION: Charger la config depuis AsyncStorage (PAS D'APPEL API)
+  await loadConfigFromStorage();
   
   return new Promise((resolve) => {
     Geolocation.getCurrentPosition(
@@ -294,5 +248,4 @@ export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   });
 };
 
-// Export par défaut pour l'enregistrement du Headless Task
 export default locationBackgroundTask;

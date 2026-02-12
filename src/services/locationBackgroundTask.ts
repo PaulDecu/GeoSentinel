@@ -42,7 +42,7 @@ const notifiedRisks = new Set<string>();
 const notificationTimestamps = new Map<string, number>();
 const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
-// ✅ OPTIMISATION: Lire les paramètres depuis AsyncStorage (déjà récupérés au démarrage)
+// ✅ Lire les paramètres depuis AsyncStorage
 const loadConfigFromStorage = async (): Promise<void> => {
   try {
     console.log('[BG] 📖 Lecture configuration depuis AsyncStorage');
@@ -58,14 +58,13 @@ const loadConfigFromStorage = async (): Promise<void> => {
       LOCATION_CONFIG.alertRadius = parseInt(alertRadiusMeters);
       LOCATION_CONFIG.radiusRecherche = parseInt(riskLoadZoneKm);
       
-      console.log(`[BG] ✅ Configuration chargée depuis storage:`);
+      console.log(`[BG] ✅ Configuration chargée:`);
       console.log(`[BG]    - Type: ${tourneeType}`);
       console.log(`[BG]    - Rayon alerte: ${LOCATION_CONFIG.alertRadius}m`);
       console.log(`[BG]    - Refresh API: ${parseInt(apiCallDelayMinutes)}min`);
       console.log(`[BG]    - Zone recherche: ${LOCATION_CONFIG.radiusRecherche}km`);
     } else {
-      console.warn('[BG] ⚠️ Paramètres manquants dans AsyncStorage, utilisation valeurs par défaut');
-      // Garder les valeurs par défaut
+      console.warn('[BG] ⚠️ Paramètres manquants, valeurs par défaut');
     }
   } catch (error) {
     console.error('[BG] ❌ Erreur lecture configuration:', error);
@@ -95,9 +94,19 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
   try {
     const now = new Date();
     const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    console.log(`[BG] date : ${dateStr} appel getNearbyRisks`);
+    console.log(`[BG] date : ${dateStr} - Tentative refresh cache`);
     
-    // Appel API avec le nouveau client TypeScript
+    // ✅ Vérifier que le token est présent
+    const token = await AsyncStorage.getItem('accessToken');
+    if (!token) {
+      console.error('[BG] ❌ Pas de token disponible - Impossible d\'appeler l\'API');
+      console.log('[BG] ⚠️ Utilisation du cache existant');
+      return;
+    }
+    
+    console.log(`[BG] ✅ Token présent, appel getNearbyRisks`);
+    
+    // Appel API avec le client TypeScript
     const risks = await apiClient.getNearbyRisks(
       latitude,
       longitude,
@@ -107,9 +116,16 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
     cachedRisks = risks || [];
     lastApiCall = Date.now();
     lastKnownPosition = { latitude, longitude };
-    console.log(`[BG] ✅ Cache: ${cachedRisks.length} risques`);
-  } catch (error) {
-    console.error('[BG] ❌ Erreur cache:', error);
+    console.log(`[BG] ✅ Cache rafraîchi: ${cachedRisks.length} risques`);
+  } catch (error: any) {
+    if (error.response?.status === 401) {
+      console.error('[BG] ❌ Erreur 401 Unauthorized - Token expiré ou invalide');
+      console.log('[BG] ⚠️ Utilisation du cache existant (risques déjà chargés)');
+    } else {
+      console.error('[BG] ❌ Erreur cache:', error.message);
+    }
+    
+    // Ne pas throw l'erreur, continuer avec le cache existant
   }
 };
 
@@ -148,10 +164,10 @@ const checkRisksFromCache = async (
     }
   });
   
-  // 2. Créer un Set des IDs de risques à proximité (pour nettoyage)
+  // 2. Créer un Set des IDs de risques à proximité
   const nearbyRiskIds = new Set(nearbyRisks.map(r => r.id));
   
-  // 3. Envoyer les notifications (avec système de cache anti-spam)
+  // 3. Envoyer les notifications
   for (const risk of nearbyRisks) {
     const lastNotification = notificationTimestamps.get(risk.id) || 0;
     const timeSinceLastNotif = now - lastNotification;
@@ -182,7 +198,7 @@ const checkRisksFromCache = async (
       }
     } else {
       const remainingMinutes = Math.ceil((NOTIFICATION_COOLDOWN - timeSinceLastNotif) / 1000 / 60);
-      console.log(`[BG] ⏳ Risque ${risk.id} - cooldown actif (encore ${remainingMinutes}min)`);
+      console.log(`[BG] ⏳ Risque ${risk.id} - cooldown actif (${remainingMinutes}min)`);
     }
   }
   
@@ -197,7 +213,7 @@ const checkRisksFromCache = async (
   });
   
   if (removedRisks.length > 0) {
-    console.log(`[BG] 🧹 Nettoyage cache: ${removedRisks.length} risque(s) retiré(s)`);
+    console.log(`[BG] 🧹 Nettoyage: ${removedRisks.length} risque(s) retiré(s)`);
   }
   
   return nearbyRisks;
@@ -207,7 +223,7 @@ const checkRisksFromCache = async (
 export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   console.log('[BG] 🚀 Headless JS Task démarré');
   
-  // ✅ OPTIMISATION: Charger la config depuis AsyncStorage (PAS D'APPEL API)
+  // Charger la config depuis AsyncStorage
   await loadConfigFromStorage();
   
   return new Promise((resolve) => {
@@ -217,8 +233,12 @@ export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
           const { latitude, longitude } = position.coords;
           console.log(`[BG] 📍 Position: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
           
+          // Vérifier si le cache doit être rafraîchi
           if (shouldRefreshCache(latitude, longitude)) {
+            console.log('[BG] 🔄 Refresh du cache nécessaire');
             await refreshRiskCache(latitude, longitude);
+          } else {
+            console.log(`[BG] ✅ Cache valide (${cachedRisks.length} risques)`);
           }
           
           const nearbyRisks = await checkRisksFromCache(latitude, longitude);

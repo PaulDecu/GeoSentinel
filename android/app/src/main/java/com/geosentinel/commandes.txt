@@ -52,3 +52,25 @@ npx react-native bundle --platform android --dev false --entry-file index.js --b
 Compiler l'APK :
 cd android
 ./gradlew assembleRelease
+
+
+
+-----------------------------------------------
+
+Parfait, voici la procédure standard pour mettre à jour votre dépôt GitHub avec vos nouvelles modifications.
+
+Les commandes à taper
+Tapez ces commandes successivement dans votre terminal, à la racine du projet :
+
+Ajouter les modifications (les fichiers modifiés, ajoutés ou supprimés) :
+
+Bash
+git add .
+Créer le commit avec un message descriptif :
+
+Bash
+git commit -m "Description de vos mises à jour"
+Envoyer sur GitHub (le push) :
+
+Bash
+git push

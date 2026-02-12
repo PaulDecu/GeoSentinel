@@ -16,6 +16,7 @@ export interface SystemSetting {
   positionTestDelaySeconds: number;
   riskLoadZoneKm: number;
   alertRadiusMeters: number;
+  dashboardMessage: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -279,6 +280,23 @@ class ApiClient {
     } catch (error) {
       console.error('❌ Error getting system setting:', error);
       return null;
+    }
+  }
+
+  /**
+   * ✅ NOUVEAU: Récupère le message du dashboard (route publique)
+   */
+  async getDashboardMessage(): Promise<{ dashboardMessage: string | null }> {
+    try {
+      console.log('📡 API call getDashboardMessage');
+      const response = await this.client.get<{ dashboardMessage: string | null }>(
+        '/system-settings/public/dashboard-message'
+      );
+      console.log('✅ Dashboard message received:', response.data.dashboardMessage);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error getting dashboard message:', error);
+      return { dashboardMessage: null };
     }
   }
 }

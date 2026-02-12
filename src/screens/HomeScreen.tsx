@@ -1,13 +1,15 @@
 // src/screens/HomeScreen.tsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
 import { useAuthStore } from '../stores/authStore';
+import { apiClient } from '../services/api';
 import { COLORS } from '../utils/constants';
 
 interface Props {
@@ -18,6 +20,25 @@ export default function HomeScreen({ navigation }: Props) {
   // ✅ Appeler les hooks AVANT tout return conditionnel
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  
+  // ✅ États pour le message dashboard
+  const [dashboardMessage, setDashboardMessage] = useState<string | null>(null);
+  const [loadingMessage, setLoadingMessage] = useState(true);
+
+  useEffect(() => {
+    loadDashboardMessage();
+  }, []);
+
+  const loadDashboardMessage = async () => {
+    try {
+      const response = await apiClient.getDashboardMessage();
+      setDashboardMessage(response.dashboardMessage);
+    } catch (error) {
+      console.error('Erreur chargement message dashboard:', error);
+    } finally {
+      setLoadingMessage(false);
+    }
+  };
 
   const menuItems = [
     {
@@ -47,6 +68,24 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={styles.title}>GeoSentinel</Text>
           <Text style={styles.subtitle}>Bienvenue {user?.email}</Text>
         </View>
+
+        {/* ✅ Message Dashboard Global */}
+        {dashboardMessage && !loadingMessage && (
+          <View style={styles.alertBanner}>
+            <Text style={styles.alertIcon}>📢</Text>
+            <View style={styles.alertContent}>
+              <Text style={styles.alertTitle}>Message important</Text>
+              <Text style={styles.alertMessage}>{dashboardMessage}</Text>
+            </View>
+          </View>
+        )}
+
+        {loadingMessage && (
+          <View style={styles.loadingBanner}>
+            <ActivityIndicator size="small" color={COLORS.primary} />
+            <Text style={styles.loadingText}>Chargement...</Text>
+          </View>
+        )}
 
         {/* Menu principal */}
         <View style={styles.menu}>
@@ -107,7 +146,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 30,
     marginTop: 20,
   },
   logoContainer: {
@@ -134,6 +173,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textLight,
     textAlign: 'center',
+  },
+  // ✅ Styles pour le message dashboard
+  alertBanner: {
+    backgroundColor: '#FF9800',
+    marginBottom: 20,
+    borderRadius: 12,
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  alertIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  alertContent: {
+    flex: 1,
+  },
+  alertTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 5,
+  },
+  alertMessage: {
+    fontSize: 14,
+    color: '#fff',
+    lineHeight: 20,
+    opacity: 0.95,
+  },
+  loadingBanner: {
+    marginBottom: 20,
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginLeft: 10,
+    fontSize: 14,
+    color: COLORS.textLight,
   },
   menu: {
     marginBottom: 30,
