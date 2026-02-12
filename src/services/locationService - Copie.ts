@@ -26,6 +26,39 @@ interface PermissionResult {
 
 let isNativeServiceRunning = false;
 
+// Configuration des intervalles selon le type de tournée
+// ✅ Cette fonction récupère maintenant les paramètres depuis l'API
+const getTaskInterval = async (tourneeType: TourneeType): Promise<number> => {
+  try {
+    console.log(`📡 Récupération paramètres pour: ${tourneeType}`);
+    const setting = await apiClient.getSystemSettingByType(tourneeType);
+    
+    if (setting) {
+      // Convertir positionTestDelaySeconds en millisecondes
+      const intervalMs = setting.positionTestDelaySeconds * 1000;
+      console.log(`✅ Intervalle depuis API: ${intervalMs}ms (${setting.positionTestDelaySeconds}s)`);
+      return intervalMs;
+    }
+    
+    // Fallback sur les valeurs par défaut si l'API échoue
+    console.warn(`⚠️ Utilisation valeurs par défaut pour ${tourneeType}`);
+    switch (tourneeType) {
+      case 'pieds':
+        return 30000; // 30 secondes
+      case 'velo':
+        return 20000; // 20 secondes
+      case 'voiture':
+        return 10000; // 10 secondes
+      default:
+        return 60000; // 60 secondes par défaut
+    }
+  } catch (error) {
+    console.error('❌ Erreur récupération paramètres:', error);
+    // Fallback
+    return 60000;
+  }
+};
+
 export const locationService = {
   getCurrentPosition: async (): Promise<LocationPosition | null> => {
     try {
@@ -160,94 +193,28 @@ export const locationService = {
       console.log('🛡️ Service en arrière-plan avec notification permanente');
       
       if (tourneeType) {
-        console.log(`📡 Récupération paramètres API pour: ${tourneeType}`);
+        // ✅ Récupérer l'intervalle depuis l'API
+        const taskInterval = await getTaskInterval(tourneeType);
         
-        // ✅ RÉCUPÉRER LES PARAMÈTRES DEPUIS L'API UNE SEULE FOIS
-        const setting: SystemSetting | null = await apiClient.getSystemSettingByType(tourneeType);
+        console.log(`📡 Paramètres récupérés depuis l'API pour ${tourneeType}`);
+        console.log(`⏱️ Intervalle de test: ${taskInterval}ms (${taskInterval/1000}s)`);
         
-        if (setting) {
-          console.log(`✅ Paramètres récupérés depuis l'API:`);
-          console.log(`   - Type: ${setting.label}`);
-          console.log(`   - Test position: ${setting.positionTestDelaySeconds}s`);
-          console.log(`   - Refresh API: ${setting.apiCallDelayMinutes}min`);
-          console.log(`   - Zone recherche: ${setting.riskLoadZoneKm}km`);
-          console.log(`   - Rayon alerte: ${setting.alertRadiusMeters}m`);
+        // Utiliser le module natif au lieu de AsyncStorage
+        if (PreferencesModule) {
+          await PreferencesModule.setTourneeType(tourneeType);
+          await PreferencesModule.setTaskInterval(taskInterval);
           
-          // ✅ SAUVEGARDER TOUS LES PARAMÈTRES DANS ASYNCSTORAGE (une seule fois)
-          await AsyncStorage.setItem('tourneeType', tourneeType);
-          await AsyncStorage.setItem('positionTestDelaySeconds', String(setting.positionTestDelaySeconds));
-          await AsyncStorage.setItem('apiCallDelayMinutes', String(setting.apiCallDelayMinutes));
-          await AsyncStorage.setItem('riskLoadZoneKm', String(setting.riskLoadZoneKm));
-          await AsyncStorage.setItem('alertRadiusMeters', String(setting.alertRadiusMeters));
-          
-          console.log('✅ Paramètres sauvegardés dans AsyncStorage');
-          
-          // Calculer l'intervalle pour le module natif
-          const taskInterval = setting.positionTestDelaySeconds * 1000;
-          
-          // Utiliser le module natif pour configurer l'intervalle
-          if (PreferencesModule) {
-            await PreferencesModule.setTourneeType(tourneeType);
-            await PreferencesModule.setTaskInterval(taskInterval);
-            console.log(`✅ Configuration module natif: ${taskInterval}ms`);
-          } else {
-            console.warn('⚠️ PreferencesModule non disponible');
-          }
-          
+          console.log(`✅ Type de tournée sauvegardé: ${tourneeType}`);
+          console.log(`✅ Intervalle sauvegardé: ${taskInterval}ms (${taskInterval/1000}s)`);
         } else {
-          // Fallback sur valeurs par défaut
-          console.warn(`⚠️ Pas de paramètres API, utilisation valeurs par défaut`);
-          
-          // Valeurs par défaut selon le type
-          let defaults = {
-            positionTestDelaySeconds: 30,
-            apiCallDelayMinutes: 5,
-            riskLoadZoneKm: 5,
-            alertRadiusMeters: 100,
-          };
-          
-          switch (tourneeType) {
-            case 'pieds':
-              defaults = {
-                positionTestDelaySeconds: 30,
-                apiCallDelayMinutes: 10,
-                riskLoadZoneKm: 5,
-                alertRadiusMeters: 60,
-              };
-              break;
-            case 'velo':
-              defaults = {
-                positionTestDelaySeconds: 20,
-                apiCallDelayMinutes: 7,
-                riskLoadZoneKm: 10,
-                alertRadiusMeters: 100,
-              };
-              break;
-            case 'voiture':
-              defaults = {
-                positionTestDelaySeconds: 10,
-                apiCallDelayMinutes: 5,
-                riskLoadZoneKm: 10,
-                alertRadiusMeters: 250,
-              };
-              break;
-          }
-          
+          console.error('❌ PreferencesModule non disponible !');
+          // Fallback sur AsyncStorage
           await AsyncStorage.setItem('tourneeType', tourneeType);
-          await AsyncStorage.setItem('positionTestDelaySeconds', String(defaults.positionTestDelaySeconds));
-          await AsyncStorage.setItem('apiCallDelayMinutes', String(defaults.apiCallDelayMinutes));
-          await AsyncStorage.setItem('riskLoadZoneKm', String(defaults.riskLoadZoneKm));
-          await AsyncStorage.setItem('alertRadiusMeters', String(defaults.alertRadiusMeters));
-          
-          console.log('✅ Valeurs par défaut sauvegardées');
-          
-          const taskInterval = defaults.positionTestDelaySeconds * 1000;
-          
-          if (PreferencesModule) {
-            await PreferencesModule.setTourneeType(tourneeType);
-            await PreferencesModule.setTaskInterval(taskInterval);
-          }
+          await AsyncStorage.setItem('taskInterval', String(taskInterval));
         }
+        
+        // Sauvegarder aussi pour le Headless Task JS
+        await AsyncStorage.setItem('tourneeType', tourneeType);
       }
       
       const perms = await locationService.checkPermissions();
@@ -287,14 +254,9 @@ export const locationService = {
         console.log('✅ Service natif arrêté');
       }
       
-      // Nettoyer TOUS les paramètres sauvegardés
+      // Nettoyer les données sauvegardées
       await AsyncStorage.removeItem('tourneeType');
-      await AsyncStorage.removeItem('positionTestDelaySeconds');
-      await AsyncStorage.removeItem('apiCallDelayMinutes');
-      await AsyncStorage.removeItem('riskLoadZoneKm');
-      await AsyncStorage.removeItem('alertRadiusMeters');
       await AsyncStorage.removeItem('taskInterval');
-      
       console.log('🧹 Configuration supprimée');
     } catch (error) {
       console.error('❌ Erreur arrêt:', error);

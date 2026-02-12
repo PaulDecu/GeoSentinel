@@ -7,21 +7,6 @@ const API_URL = 'http://10.0.2.2:3000/api'; // Android emulator
 // const API_URL = 'http://localhost:3000/api'; // iOS simulator
 // const API_URL = 'https://votre-api.com/api'; // Production
 
-// Types pour system settings
-export interface SystemSetting {
-  id: string;
-  tourneeType: TourneeType;
-  label: string;
-  apiCallDelayMinutes: number;
-  positionTestDelaySeconds: number;
-  riskLoadZoneKm: number;
-  alertRadiusMeters: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type TourneeType = 'pieds' | 'velo' | 'voiture';
-
 class ApiClient {
   private client: AxiosInstance;
   private isRefreshing = false;
@@ -222,6 +207,7 @@ class ApiClient {
     return response.data;
   }
 
+  // ✅ CORRECTION: Utiliser les bons noms de paramètres attendus par le backend
   async getNearbyRisks(
     latitude: number,
     longitude: number,
@@ -234,52 +220,14 @@ class ApiClient {
     
     const response = await this.client.get<Risk[]>('/risks/nearby', {
       params: { 
-        lat: latitude,
-        lng: longitude,
-        radius_km: radiusKm
+        lat: latitude,      // ✅ Backend attend "lat" (pas "latitude")
+        lng: longitude,     // ✅ Backend attend "lng" (pas "longitude")
+        radius_km: radiusKm // ✅ Backend attend "radius_km" en km (pas "radius" en mètres)
       },
     });
     
     console.log(`✅ Received ${response.data.length} risks`);
     return response.data;
-  }
-
-  // ========== SYSTEM SETTINGS ==========
-
-  /**
-   * Récupère tous les paramètres système (route publique)
-   */
-  async getSystemSettings(): Promise<SystemSetting[]> {
-    console.log('📡 API call getSystemSettings');
-    const response = await this.client.get<SystemSetting[]>('/system-settings/public/all');
-    console.log(`✅ Received ${response.data.length} system settings`);
-    return response.data;
-  }
-
-  /**
-   * Récupère les paramètres pour un type de tournée spécifique
-   */
-  async getSystemSettingByType(tourneeType: TourneeType): Promise<SystemSetting | null> {
-    try {
-      const settings = await this.getSystemSettings();
-      const setting = settings.find(s => s.tourneeType === tourneeType);
-      
-      if (setting) {
-        console.log(`✅ Found setting for ${tourneeType}:`, {
-          apiCallDelayMinutes: setting.apiCallDelayMinutes,
-          positionTestDelaySeconds: setting.positionTestDelaySeconds,
-          riskLoadZoneKm: setting.riskLoadZoneKm,
-          alertRadiusMeters: setting.alertRadiusMeters,
-        });
-      } else {
-        console.warn(`⚠️ No setting found for ${tourneeType}`);
-      }
-      
-      return setting || null;
-    } catch (error) {
-      console.error('❌ Error getting system setting:', error);
-      return null;
-    }
   }
 }
 

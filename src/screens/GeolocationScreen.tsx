@@ -10,9 +10,9 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { locationService } from '../services/locationService';
-import { notificationService } from '../services/notificationService';
-import { apiClient } from '../services/api';
+import  locationService  from '../services/locationService';
+import  notificationService  from '../services/notificationService';
+import  { apiClient }  from '../services/api';
 import { COLORS } from '../utils/constants';
 
 type TourneeType = 'pieds' | 'velo' | 'voiture' | '';
