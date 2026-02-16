@@ -299,7 +299,39 @@ class ApiClient {
       return { dashboardMessage: null };
     }
   }
+
+
+  /**
+ * 🆕 Vérifier la validité de l'abonnement du tenant
+ */
+async checkSubscriptionStatus(): Promise<{
+  isValid: boolean;
+  subscriptionEnd: string | null;
+  daysRemaining: number;
+}> {
+  try {
+    console.log('📡 API call checkSubscriptionStatus');
+    const response = await this.client.get<{
+      isValid: boolean;
+      subscriptionEnd: string | null;
+      daysRemaining: number;
+    }>('/tenants/subscription-status');
+    console.log('✅ Subscription status:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error checking subscription:', error);
+    return {
+      isValid: false,
+      subscriptionEnd: null,
+      daysRemaining: 0,
+    };
+  }
 }
+
+}
+
+
+
 
 export const apiClient = new ApiClient();
 

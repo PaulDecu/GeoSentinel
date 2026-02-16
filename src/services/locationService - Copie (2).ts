@@ -154,14 +154,10 @@ export const locationService = {
     }
   },
 
-  startBackgroundLocationTracking: async (
-    tourneeType: TourneeType,
-    notifyCommuneChange: boolean = false  // 🆕 NOUVEAU PARAMÈTRE
-  ): Promise<boolean> => {
+  startBackgroundLocationTracking: async (tourneeType: TourneeType  ): Promise<boolean> => {
     try {
       console.log('🚀 DÉMARRAGE SERVICE NATIF ANDROID');
       console.log('🛡️ Service en arrière-plan avec notification permanente');
-      console.log(`🏘️ Surveillance changement commune: ${notifyCommuneChange ? 'OUI' : 'NON'}`);
       
       if (tourneeType) {
         console.log(`📡 Récupération paramètres API pour: ${tourneeType}`);
@@ -183,9 +179,6 @@ export const locationService = {
           await AsyncStorage.setItem('apiCallDelayMinutes', String(setting.apiCallDelayMinutes));
           await AsyncStorage.setItem('riskLoadZoneKm', String(setting.riskLoadZoneKm));
           await AsyncStorage.setItem('alertRadiusMeters', String(setting.alertRadiusMeters));
-          
-          // 🆕 SAUVEGARDER LE PARAMÈTRE DE SURVEILLANCE DE COMMUNE
-          await AsyncStorage.setItem('notifyCommuneChange', notifyCommuneChange ? 'true' : 'false');
           
           console.log('✅ Paramètres sauvegardés dans AsyncStorage');
           
@@ -246,9 +239,6 @@ export const locationService = {
           await AsyncStorage.setItem('riskLoadZoneKm', String(defaults.riskLoadZoneKm));
           await AsyncStorage.setItem('alertRadiusMeters', String(defaults.alertRadiusMeters));
           
-          // 🆕 SAUVEGARDER LE PARAMÈTRE DE SURVEILLANCE DE COMMUNE
-          await AsyncStorage.setItem('notifyCommuneChange', notifyCommuneChange ? 'true' : 'false');
-          
           console.log('✅ Valeurs par défaut sauvegardées');
           
           const taskInterval = defaults.positionTestDelaySeconds * 1000;
@@ -304,15 +294,6 @@ export const locationService = {
       await AsyncStorage.removeItem('riskLoadZoneKm');
       await AsyncStorage.removeItem('alertRadiusMeters');
       await AsyncStorage.removeItem('taskInterval');
-      
-      // 🆕 SUPPRIMER LE PARAMÈTRE DE SURVEILLANCE DE COMMUNE
-      await AsyncStorage.removeItem('notifyCommuneChange');
-      
-      // 🆕 SUPPRIMER LA DERNIÈRE COMMUNE CONNUE
-      await AsyncStorage.removeItem('lastKnownCommune');
-
-      // 🆕 SUPPRIMER LE TIMESTAMP DE LA DERNIÈRE EXÉCUTION
-      await AsyncStorage.removeItem('lastTaskRun');
       
       console.log('🧹 Configuration supprimée');
     } catch (error) {

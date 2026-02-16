@@ -61,7 +61,6 @@ export default function GeolocationScreen() {
   //const [PublicloadingRisks, setLoadingPublicRisks] = useState(false);
   const [PublicloadingGeoRisks, setLoadingPublicGeoRisks] = useState(false); // 👈 AJOUT
   const [communeName, setCommuneName] = useState<string>('');
-  const [notifyCommuneChange, setNotifyCommuneChange] = useState<boolean>(false);
 // ...
 
   useEffect(() => {
@@ -247,97 +246,41 @@ export default function GeolocationScreen() {
     }
   };
 
-const handleStartTracking = async () => {
-  if (!tourneeType) {
-    Alert.alert(
-      'Type de tournée requis',
-      'Veuillez sélectionner un type de tournée avant de démarrer.'
-    );
-    return;
-  }
-
-  try {
-    setLoading(true);
-
-    Alert.alert(
-      '🏘️ Surveillance des communes',
-      'Voulez-vous être prévenu lors du changement de commune afin de vérifier les risques de la nouvelle commune ?',
-      [
-        {
-          text: 'Non',
-          onPress: async () => {
-            console.log('👎 Surveillance commune désactivée');
-            await startTrackingWithOption(false);
-          },
-          style: 'cancel',
-        },
-        {
-          text: 'Oui',
-          onPress: async () => {
-            console.log('👍 Surveillance commune activée');
-            await startTrackingWithOption(true);
-          },
-        },
-      ],
-      { cancelable: false }
-    );
-  } catch (error) {
-    console.error('Erreur démarrage:', error);
-    setLoading(false);
-    Alert.alert('Erreur', 'Impossible de démarrer la surveillance');
-  }
-};
-
-const startTrackingWithOption = async (enableCommuneNotification: boolean) => {
-  try {
-    setNotifyCommuneChange(enableCommuneNotification);
-
-    await locationService.startBackgroundLocationTracking(
-      tourneeType,
-      enableCommuneNotification
-    );
-
-    await checkPermissions();
-    
-    Alert.alert(
-      'Service démarré',
-      enableCommuneNotification
-        ? 'Surveillance active avec notification de changement de commune'
-        : 'Surveillance active sans notification de changement de commune'
-    );
-  } catch (error: any) {
-    console.error('Erreur:', error);
-    if (error.message === 'PERMISSIONS_REQUIRED') {
-      Alert.alert(
-        'Permissions requises',
-        'Veuillez autoriser la localisation en arrière-plan'
-      );
-    } else {
-      Alert.alert('Erreur', 'Impossible de démarrer le service');
+  const handleStartTracking = async () => {
+    if (!tourneeType) {
+      Alert.alert('Type de tournée requis', 'Sélectionnez un type de tournée');
+      return;
     }
-  } finally {
-    setLoading(false);
-  }
-};
 
-
-const handleStopTracking = async () => {
-  try {
     setLoading(true);
+    try {
+      await locationService.startBackgroundLocationTracking(tourneeType as any);
+      setIsTracking(true);
+      Alert.alert(
+        '✅ Tracking activé',
+        `Mode: ${getTourneeLabel(tourneeType)}\n\n🛡️ Service natif Android\nSurvie illimitée en arrière-plan`
+      );
+    } catch (error: any) {
+      Alert.alert('❌ Erreur', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    await locationService.stopBackgroundLocationTracking();
-    await checkPermissions();
-    
-    setNotifyCommuneChange(false);
-
-    Alert.alert('Service arrêté', 'La surveillance des risques est désactivée');
-  } catch (error) {
-    console.error('Erreur arrêt:', error);
-    Alert.alert('Erreur', 'Impossible d\'arrêter le service');
-  } finally {
-    setLoading(false);
-  }
-};
+  const handleStopTracking = async () => {
+    setLoading(true);
+    try {
+      await locationService.stopBackgroundLocationTracking();
+      setIsTracking(false);
+      setTourneeType('');
+      setNearbyRisks([]);
+      Alert.alert('✅ Tracking arrêté');
+    } catch (error) {
+      Alert.alert('❌ Erreur');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getTourneeLabel = (type: TourneeType): string => {
     switch (type) {

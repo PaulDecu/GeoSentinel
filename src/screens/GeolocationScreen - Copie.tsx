@@ -55,14 +55,6 @@ export default function GeolocationScreen() {
     canStartTracking: false,
   });
   const [tourneeType, setTourneeType] = useState<TourneeType>('');
-  // ... autres états
-  //const [PublicnearbyRisks, setNearbyPublicRisks] = useState<RiskWithDistance[]>([]);
-  const [PublicgeoRisks, setPublicGeoRisks] = useState<any[]>([]); // 👈 AJOUT
-  //const [PublicloadingRisks, setLoadingPublicRisks] = useState(false);
-  const [PublicloadingGeoRisks, setLoadingPublicGeoRisks] = useState(false); // 👈 AJOUT
-  const [communeName, setCommuneName] = useState<string>('');
-  const [notifyCommuneChange, setNotifyCommuneChange] = useState<boolean>(false);
-// ...
 
   useEffect(() => {
     initializeScreen();
@@ -139,67 +131,19 @@ export default function GeolocationScreen() {
     }
   };
 
-    const fetchGeoRisques = async (latitude: number, longitude: number) => {
-    try {
-       setLoadingPublicGeoRisks(true);
-       // Appel API Géorisques v1 (rayon 200m comme demandé)
-       //  lister les types de risques recensés sur un territoire :  "https://georisques.gouv.fr/api/v1/gaspar/risques?latlon=6.8694,45.9237&rayon=2000" 
-       // Atlas des zones inondables : https://georisques.gouv.fr/api/v1/gaspar/azi?latlon=45.9237,6.8694&rayon=2000"
-       // catastrophes naturelles : https://georisques.gouv.fr/api/v1/gaspar/catnat?latlon=45.9237,6.8694&rayon=2000"
-       // cavités : https://georisques.gouv.fr/api/v1/cavites?latlon=45.9237,6.8694&rayon=2000"
-       // informations communales sur les risques ùmajeurs : https://georisques.gouv.fr/api/v1/gaspar/dicrim?latlon=45.9237,6.8694&rayon=2000"
-       // installations classees : https://georisques.gouv.fr/api/v1/installations_classees?latlon=45.9237,6.8694&rayon=2000"
-       // mouvements de terrain : https://georisques.gouv.fr/api/v1/mvt?latlon=45.9237,6.8694&rayon=2000"
-       // lister les types de risques recensés sur un territoire : 
-       //latitude=45.9237;
-       //longitude=6.8694;
-       console.log('appel api georisques :');
-       const response = await fetch(
-              `https://georisques.gouv.fr/api/v1/gaspar/risques?latlon=${longitude},${latitude}&rayon=20`             
-        );
-        const data = await response.json();
-        // 🛠️ TRANSFORMATION : On prépare les données pour le composant
-        if (data.data && data.data.length > 0) {
-            // 📍 Extraction du nom de la commune
-            setCommuneName(data.data[0].libelle_commune);
-            const formattedRisks = data.data[0].risques_detail.map((item: any) => ({
-            id: `geo-${item.num_risque}`, // On crée l'ID ici
-            title: item.libelle_risque_long,
-            category: 'naturel', // Catégorie par défaut pour vos icônes
-            description: "Source : Géorisques"
-          }));
-          setPublicGeoRisks(formattedRisks);
-        } else {
-          setPublicGeoRisks([]);
-        }
-      } catch (error) {
-         console.error('Erreur Géorisques:', error);
-      } finally {
-        setLoadingPublicGeoRisks(false);
-     }
-    };
-
   const updateCurrentLocation = async () => {
     try {
       const position = await locationService.getCurrentPosition();
       if (position) {
         setCurrentPosition(position);
-       // Appels parallèles pour charger les deux sources
-      await Promise.all([
-        loadNearbyRisks(position.latitude, position.longitude),
-        fetchGeoRisques(position.latitude, position.longitude) // 👈 AJOUT
-      ]);
+        await loadNearbyRisks(position.latitude, position.longitude);
       }
     } catch (error) {
       console.log('Cannot get position');
       setCurrentPosition(null);
       setNearbyRisks([]);
-      setPublicGeoRisks([]); // 👈 AJOUT
     }
   };
-
-
-
 
   const getCategoryIcon = (category: string): string => {
     const icons: Record<string, string> = {
@@ -247,97 +191,41 @@ export default function GeolocationScreen() {
     }
   };
 
-const handleStartTracking = async () => {
-  if (!tourneeType) {
-    Alert.alert(
-      'Type de tournée requis',
-      'Veuillez sélectionner un type de tournée avant de démarrer.'
-    );
-    return;
-  }
-
-  try {
-    setLoading(true);
-
-    Alert.alert(
-      '🏘️ Surveillance des communes',
-      'Voulez-vous être prévenu lors du changement de commune afin de vérifier les risques de la nouvelle commune ?',
-      [
-        {
-          text: 'Non',
-          onPress: async () => {
-            console.log('👎 Surveillance commune désactivée');
-            await startTrackingWithOption(false);
-          },
-          style: 'cancel',
-        },
-        {
-          text: 'Oui',
-          onPress: async () => {
-            console.log('👍 Surveillance commune activée');
-            await startTrackingWithOption(true);
-          },
-        },
-      ],
-      { cancelable: false }
-    );
-  } catch (error) {
-    console.error('Erreur démarrage:', error);
-    setLoading(false);
-    Alert.alert('Erreur', 'Impossible de démarrer la surveillance');
-  }
-};
-
-const startTrackingWithOption = async (enableCommuneNotification: boolean) => {
-  try {
-    setNotifyCommuneChange(enableCommuneNotification);
-
-    await locationService.startBackgroundLocationTracking(
-      tourneeType,
-      enableCommuneNotification
-    );
-
-    await checkPermissions();
-    
-    Alert.alert(
-      'Service démarré',
-      enableCommuneNotification
-        ? 'Surveillance active avec notification de changement de commune'
-        : 'Surveillance active sans notification de changement de commune'
-    );
-  } catch (error: any) {
-    console.error('Erreur:', error);
-    if (error.message === 'PERMISSIONS_REQUIRED') {
-      Alert.alert(
-        'Permissions requises',
-        'Veuillez autoriser la localisation en arrière-plan'
-      );
-    } else {
-      Alert.alert('Erreur', 'Impossible de démarrer le service');
+  const handleStartTracking = async () => {
+    if (!tourneeType) {
+      Alert.alert('Type de tournée requis', 'Sélectionnez un type de tournée');
+      return;
     }
-  } finally {
-    setLoading(false);
-  }
-};
 
-
-const handleStopTracking = async () => {
-  try {
     setLoading(true);
+    try {
+      await locationService.startBackgroundLocationTracking(tourneeType as any);
+      setIsTracking(true);
+      Alert.alert(
+        '✅ Tracking activé',
+        `Mode: ${getTourneeLabel(tourneeType)}\n\n🛡️ Service natif Android\nSurvie illimitée en arrière-plan`
+      );
+    } catch (error: any) {
+      Alert.alert('❌ Erreur', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    await locationService.stopBackgroundLocationTracking();
-    await checkPermissions();
-    
-    setNotifyCommuneChange(false);
-
-    Alert.alert('Service arrêté', 'La surveillance des risques est désactivée');
-  } catch (error) {
-    console.error('Erreur arrêt:', error);
-    Alert.alert('Erreur', 'Impossible d\'arrêter le service');
-  } finally {
-    setLoading(false);
-  }
-};
+  const handleStopTracking = async () => {
+    setLoading(true);
+    try {
+      await locationService.stopBackgroundLocationTracking();
+      setIsTracking(false);
+      setTourneeType('');
+      setNearbyRisks([]);
+      Alert.alert('✅ Tracking arrêté');
+    } catch (error) {
+      Alert.alert('❌ Erreur');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getTourneeLabel = (type: TourneeType): string => {
     switch (type) {
@@ -450,71 +338,6 @@ const handleStopTracking = async () => {
                 })}
               </View>
             )}
-
-
-
-
-
-
-
-{/* AJOUT : SECTION RISQUES PUBLICS (GEORISQUES) */}
-{currentPosition && (
-  <View style={styles.card}>
-    <View style={styles.cardHeader}>
-      <Text style={styles.cardTitle}>🌐 Risques Publics ({communeName ? communeName : 'Niveau commune'})</Text>
-      {PublicloadingGeoRisks && <ActivityIndicator size="small" color={COLORS.primary} />}
-    </View>
-    
-{/* Section Risques Publics (Géorisques) */}
-{PublicgeoRisks.length > 0 && (
-  <View style={styles.risksContainer}>
-    
-    
-    {PublicgeoRisks.map((risk) => {
-      // On réutilise vos fonctions existantes pour les icônes et couleurs
-      const categoryColor = getCategoryColor(risk.category);
-      
-      return (
-        <View 
-          key={risk.id} 
-          style={[styles.riskItem, { borderLeftWidth: 4, borderLeftColor: '#3B82F6' }]}
-        >
-          <View style={styles.riskHeader}>
-            <View style={[styles.riskBadge, { backgroundColor: categoryColor + '20' }]}>
-              <Text style={styles.riskIcon}>{getCategoryIcon(risk.category)}</Text>
-              <Text style={[styles.riskType, { color: categoryColor }]}>
-                {risk.category}
-              </Text>
-            </View>
-            
-            <View style={[styles.distanceBadge, { backgroundColor: '#DBEAFE' }]}>
-              <Text style={[styles.distanceText, { color: '#1E40AF' }]}>
-                🌍 Public
-              </Text>
-            </View>
-          </View>
-
-          <Text style={styles.riskTitle}>{risk.title}</Text>
-          
-          <Text style={styles.riskDescription}>
-            Identifiant risque : {risk.id.replace('geo-', '')}
-          </Text>
-        </View>
-      );
-    })}
-  </View>
-)}
-
-
-
-
-    
-  </View>
-)}
-
-
-
-
           </View>
         )}
 

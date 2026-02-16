@@ -4,6 +4,7 @@ import Geolocation from '@react-native-community/geolocation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, TourneeType } from './api';
 import notifee, { AndroidImportance } from '@notifee/react-native';
+import axios from 'axios';
 
 interface Risk {
   id: string;
@@ -27,6 +28,15 @@ interface CachedPosition {
   longitude: number;
 }
 
+// 🆕 INTERFACE POUR LA RÉPONSE API GEORISQUES
+interface GeorisquesResponse {
+  data: Array<{
+    libelle_commune: string;
+    code_insee: string;
+    // ... autres champs
+  }>;
+}
+
 let cachedRisks: Risk[] = [];
 let lastApiCall = 0;
 let lastKnownPosition: CachedPosition | null = null;
@@ -42,7 +52,7 @@ const notifiedRisks = new Set<string>();
 const notificationTimestamps = new Map<string, number>();
 const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
-// ✅ OPTIMISATION: Lire les paramètres depuis AsyncStorage (déjà récupérés au démarrage)
+// ✅ Lire les paramètres depuis AsyncStorage
 const loadConfigFromStorage = async (): Promise<void> => {
   try {
     console.log('[BG] 📖 Lecture configuration depuis AsyncStorage');
@@ -58,14 +68,13 @@ const loadConfigFromStorage = async (): Promise<void> => {
       LOCATION_CONFIG.alertRadius = parseInt(alertRadiusMeters);
       LOCATION_CONFIG.radiusRecherche = parseInt(riskLoadZoneKm);
       
-      console.log(`[BG] ✅ Configuration chargée depuis storage:`);
+      console.log(`[BG] ✅ Configuration chargée:`);
       console.log(`[BG]    - Type: ${tourneeType}`);
       console.log(`[BG]    - Rayon alerte: ${LOCATION_CONFIG.alertRadius}m`);
       console.log(`[BG]    - Refresh API: ${parseInt(apiCallDelayMinutes)}min`);
       console.log(`[BG]    - Zone recherche: ${LOCATION_CONFIG.radiusRecherche}km`);
     } else {
-      console.warn('[BG] ⚠️ Paramètres manquants dans AsyncStorage, utilisation valeurs par défaut');
-      // Garder les valeurs par défaut
+      console.warn('[BG] ⚠️ Paramètres manquants, valeurs par défaut');
     }
   } catch (error) {
     console.error('[BG] ❌ Erreur lecture configuration:', error);
@@ -91,25 +100,123 @@ const calculateDistance = (
   return R * c * 1000; // en mètres
 };
 
+// 🆕 NOUVELLE FONCTION : Vérifier le changement de commune
+const checkCommuneChange = async (latitude: number, longitude: number): Promise<void> => {
+  try {
+    // Vérifier si la surveillance de commune est activée
+    const notifyCommune = await AsyncStorage.getItem('notifyCommuneChange');
+    
+    if (notifyCommune !== 'true') {
+      console.log('[BG] 🏘️ Surveillance commune désactivée');
+      return;
+    }
+    
+    console.log('[BG] 🏘️ Vérification changement de commune...');
+    
+    // Appel API Géorisques pour récupérer la commune
+    const apiUrl = `https://georisques.gouv.fr/api/v1/gaspar/risques?latlon=${longitude},${latitude}&rayon=20`;
+    console.log(`[BG] 📡 Appel API Géorisques: ${apiUrl}`);
+    
+    const response = await axios.get<GeorisquesResponse>(apiUrl, {
+      timeout: 10000,
+      headers: {
+        'Accept': 'application/json',
+      }
+    });
+    
+    if (response.data && response.data.data && response.data.data.length > 0) {
+      const currentCommune = response.data.data[0].libelle_commune;
+      console.log(`[BG] 🏘️ Commune actuelle: ${currentCommune}`);
+      
+      // Récupérer la dernière commune connue
+      const lastCommune = await AsyncStorage.getItem('lastKnownCommune');
+      
+      if (lastCommune && lastCommune !== currentCommune) {
+        // ✅ CHANGEMENT DE COMMUNE DÉTECTÉ !
+        console.log(`[BG] 🚨 CHANGEMENT DE COMMUNE: ${lastCommune} → ${currentCommune}`);
+        
+        // Envoyer notification
+        await notifee.displayNotification({
+          title: '🏘️ Changement de commune',
+          body: `Vous êtes maintenant à ${currentCommune}. Veuillez accéder à l'application pour vérifier les risques.`,
+          android: {
+            channelId: 'risk-alerts-final',
+            importance: AndroidImportance.HIGH,
+            vibrationPattern: [500, 500, 500],
+            sound: 'default',
+            pressAction: {
+              id: 'default',
+            },
+          },
+        });
+        
+        console.log('[BG] ✅ Notification changement commune envoyée');
+      } else if (!lastCommune) {
+        console.log(`[BG] 🏘️ Première détection: ${currentCommune}`);
+      } else {
+        console.log(`[BG] ✅ Toujours dans la même commune: ${currentCommune}`);
+      }
+      
+      // Sauvegarder la commune actuelle
+      await AsyncStorage.setItem('lastKnownCommune', currentCommune);
+      
+    } else {
+      console.warn('[BG] ⚠️ Aucune donnée commune retournée par l\'API');
+    }
+    
+  } catch (error: any) {
+    if (error.code === 'ECONNABORTED') {
+      console.error('[BG] ⏱️ Timeout API Géorisques');
+    } else if (error.response) {
+      console.error(`[BG] ❌ Erreur API Géorisques (${error.response.status}):`, error.response.data);
+    } else {
+      console.error('[BG] ❌ Erreur vérification commune:', error.message);
+    }
+    // Ne pas bloquer le reste du processus en cas d'erreur
+  }
+};
+
 const refreshRiskCache = async (latitude: number, longitude: number): Promise<void> => {
   try {
     const now = new Date();
     const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    console.log(`[BG] date : ${dateStr} appel getNearbyRisks`);
+    console.log(`[BG] date : ${dateStr} - Tentative refresh cache`);
     
-    // Appel API avec le nouveau client TypeScript
+    // ✅ Vérifier que le token est présent
+    const token = await AsyncStorage.getItem('accessToken');
+    if (!token) {
+      console.error('[BG] ❌ Pas de token disponible - Impossible d\'appeler l\'API');
+      console.log('[BG] ⚠️ Utilisation du cache existant');
+      return;
+    }
+    
+    console.log(`[BG] ✅ Token présent, appel getNearbyRisks`);
+    
+    // Appel API avec le client TypeScript
     const risks = await apiClient.getNearbyRisks(
       latitude,
       longitude,
       LOCATION_CONFIG.radiusRecherche * 1000 // Convertir km en mètres
     );
     
-    cachedRisks = risks || [];
+     cachedRisks = risks || [];
     lastApiCall = Date.now();
     lastKnownPosition = { latitude, longitude };
-    console.log(`[BG] ✅ Cache: ${cachedRisks.length} risques`);
-  } catch (error) {
-    console.error('[BG] ❌ Erreur cache:', error);
+    console.log(`[BG] ✅ Cache rafraîchi: ${cachedRisks.length} risques`);
+
+    // 🆕 VÉRIFIER CHANGEMENT DE COMMUNE
+    await checkCommuneChange(latitude, longitude);
+
+    
+  } catch (error: any) {
+    if (error.response?.status === 401) {
+      console.error('[BG] ❌ Erreur 401 Unauthorized - Token expiré ou invalide');
+      console.log('[BG] ⚠️ Utilisation du cache existant (risques déjà chargés)');
+    } else {
+      console.error('[BG] ❌ Erreur cache:', error.message);
+    }
+    
+    // Ne pas throw l'erreur, continuer avec le cache existant
   }
 };
 
@@ -148,10 +255,10 @@ const checkRisksFromCache = async (
     }
   });
   
-  // 2. Créer un Set des IDs de risques à proximité (pour nettoyage)
+  // 2. Créer un Set des IDs de risques à proximité
   const nearbyRiskIds = new Set(nearbyRisks.map(r => r.id));
   
-  // 3. Envoyer les notifications (avec système de cache anti-spam)
+  // 3. Envoyer les notifications
   for (const risk of nearbyRisks) {
     const lastNotification = notificationTimestamps.get(risk.id) || 0;
     const timeSinceLastNotif = now - lastNotification;
@@ -182,7 +289,7 @@ const checkRisksFromCache = async (
       }
     } else {
       const remainingMinutes = Math.ceil((NOTIFICATION_COOLDOWN - timeSinceLastNotif) / 1000 / 60);
-      console.log(`[BG] ⏳ Risque ${risk.id} - cooldown actif (encore ${remainingMinutes}min)`);
+      console.log(`[BG] ⏳ Risque ${risk.id} - cooldown actif (${remainingMinutes}min)`);
     }
   }
   
@@ -197,7 +304,7 @@ const checkRisksFromCache = async (
   });
   
   if (removedRisks.length > 0) {
-    console.log(`[BG] 🧹 Nettoyage cache: ${removedRisks.length} risque(s) retiré(s)`);
+    console.log(`[BG] 🧹 Nettoyage: ${removedRisks.length} risque(s) retiré(s)`);
   }
   
   return nearbyRisks;
@@ -207,7 +314,7 @@ const checkRisksFromCache = async (
 export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   console.log('[BG] 🚀 Headless JS Task démarré');
   
-  // ✅ OPTIMISATION: Charger la config depuis AsyncStorage (PAS D'APPEL API)
+  // Charger la config depuis AsyncStorage
   await loadConfigFromStorage();
   
   return new Promise((resolve) => {
@@ -217,8 +324,18 @@ export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
           const { latitude, longitude } = position.coords;
           console.log(`[BG] 📍 Position: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
           
+          // Vérifier si le cache doit être rafraîchi
           if (shouldRefreshCache(latitude, longitude)) {
+            console.log('[BG] 🔄 Refresh du cache nécessaire');
             await refreshRiskCache(latitude, longitude);
+          } else {
+            console.log(`[BG] ✅ Cache valide (${cachedRisks.length} risques)`);
+            
+            /* 🆕 MÊME SI LE CACHE EST VALIDE, VÉRIFIER LA COMMUNE SI ACTIVÉ
+            const notifyCommune = await AsyncStorage.getItem('notifyCommuneChange');
+            if (notifyCommune === 'true') {
+              await checkCommuneChange(latitude, longitude);
+            }*/
           }
           
           const nearbyRisks = await checkRisksFromCache(latitude, longitude);

@@ -4,6 +4,7 @@ import Geolocation from '@react-native-community/geolocation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, TourneeType } from './api';
 import notifee, { AndroidImportance } from '@notifee/react-native';
+import axios from 'axios';
 
 interface Risk {
   id: string;
@@ -27,6 +28,15 @@ interface CachedPosition {
   longitude: number;
 }
 
+// 🆕 INTERFACE POUR LA RÉPONSE API GEORISQUES
+interface GeorisquesResponse {
+  data: Array<{
+    libelle_commune: string;
+    code_insee: string;
+    // ... autres champs
+  }>;
+}
+
 let cachedRisks: Risk[] = [];
 let lastApiCall = 0;
 let lastKnownPosition: CachedPosition | null = null;
@@ -41,6 +51,11 @@ let LOCATION_CONFIG: LocationConfig = {
 const notifiedRisks = new Set<string>();
 const notificationTimestamps = new Map<string, number>();
 const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+
+// 🆕 DÉTECTION RALENTISSEMENT
+const EXPECTED_TASK_INTERVAL = 45000; // 45 secondes (intervalle attendu max)
+const SLOWDOWN_NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes entre notifications de ralentissement
+let lastSlowdownNotification = 0;
 
 // ✅ Lire les paramètres depuis AsyncStorage
 const loadConfigFromStorage = async (): Promise<void> => {
@@ -71,6 +86,68 @@ const loadConfigFromStorage = async (): Promise<void> => {
   }
 };
 
+// 🆕 NOUVELLE FONCTION : Vérifier le ralentissement de la tâche
+const checkTaskSlowdown = async (): Promise<void> => {
+  try {
+    const now = Date.now();
+    const lastTaskRunStr = await AsyncStorage.getItem('lastTaskRun');
+    
+    if (lastTaskRunStr) {
+      const lastTaskRun = parseInt(lastTaskRunStr);
+      const timeSinceLastRun = now - lastTaskRun;
+      
+      console.log(`[BG] ⏱️ Temps écoulé depuis dernière activation: ${Math.round(timeSinceLastRun / 1000)}s`);
+      
+      // Si le délai dépasse 30 secondes
+      if (timeSinceLastRun > EXPECTED_TASK_INTERVAL) {
+        const delayInSeconds = Math.round(timeSinceLastRun / 1000);
+        console.warn(`[BG] ⚠️ RALENTISSEMENT DÉTECTÉ: ${delayInSeconds}s (attendu: 30s max)`);
+        
+        // Vérifier le cooldown des notifications de ralentissement
+        const timeSinceLastSlowdownNotif = now - lastSlowdownNotification;
+        
+        if (timeSinceLastSlowdownNotif > SLOWDOWN_NOTIFICATION_COOLDOWN) {
+          console.log('[BG] 🚨 Envoi notification ralentissement');
+          
+          // Envoyer notification à l'utilisateur
+          await notifee.displayNotification({
+            title: '⚠️ Service ralenti',
+            body: `Le service de surveillance a été ralenti par le système (${delayInSeconds}s). Pour garantir une surveillance optimale, veuillez arrêter puis relancer le tracking.`,
+            android: {
+              channelId: 'risk-alerts-final',
+              importance: AndroidImportance.HIGH,
+              vibrationPattern: [500, 500, 500, 500],
+              sound: 'default',
+              pressAction: {
+                id: 'default',
+              },
+              // Notification persistante pour attirer l'attention
+              ongoing: false,
+              autoCancel: true,
+            },
+          });
+          
+          lastSlowdownNotification = now;
+          console.log('[BG] ✅ Notification ralentissement envoyée');
+        } else {
+          const remainingMinutes = Math.ceil((SLOWDOWN_NOTIFICATION_COOLDOWN - timeSinceLastSlowdownNotif) / 1000 / 60);
+          console.log(`[BG] ⏳ Notification ralentissement - cooldown actif (${remainingMinutes}min restantes)`);
+        }
+      } else {
+        console.log(`[BG] ✅ Intervalle normal (${Math.round(timeSinceLastRun / 1000)}s)`);
+      }
+    } else {
+      console.log('[BG] 📍 Première exécution de la tâche');
+    }
+    
+    // Sauvegarder le timestamp de cette exécution
+    await AsyncStorage.setItem('lastTaskRun', String(now));
+    
+  } catch (error) {
+    console.error('[BG] ❌ Erreur vérification ralentissement:', error);
+  }
+};
+
 const calculateDistance = (
   lat1: number,
   lon1: number,
@@ -88,6 +165,82 @@ const calculateDistance = (
     Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c * 1000; // en mètres
+};
+
+// 🆕 NOUVELLE FONCTION : Vérifier le changement de commune
+const checkCommuneChange = async (latitude: number, longitude: number): Promise<void> => {
+  try {
+    // Vérifier si la surveillance de commune est activée
+    const notifyCommune = await AsyncStorage.getItem('notifyCommuneChange');
+    
+    if (notifyCommune !== 'true') {
+      console.log('[BG] 🏘️ Surveillance commune désactivée');
+      return;
+    }
+    
+    console.log('[BG] 🏘️ Vérification changement de commune...');
+    
+    // Appel API Géorisques pour récupérer la commune
+    const apiUrl = `https://georisques.gouv.fr/api/v1/gaspar/risques?latlon=${longitude},${latitude}&rayon=20`;
+    console.log(`[BG] 📡 Appel API Géorisques: ${apiUrl}`);
+    
+    const response = await axios.get<GeorisquesResponse>(apiUrl, {
+      timeout: 10000,
+      headers: {
+        'Accept': 'application/json',
+      }
+    });
+    
+    if (response.data && response.data.data && response.data.data.length > 0) {
+      const currentCommune = response.data.data[0].libelle_commune;
+      console.log(`[BG] 🏘️ Commune actuelle: ${currentCommune}`);
+      
+      // Récupérer la dernière commune connue
+      const lastCommune = await AsyncStorage.getItem('lastKnownCommune');
+      
+      if (lastCommune && lastCommune !== currentCommune) {
+        // ✅ CHANGEMENT DE COMMUNE DÉTECTÉ !
+        console.log(`[BG] 🚨 CHANGEMENT DE COMMUNE: ${lastCommune} → ${currentCommune}`);
+        
+        // Envoyer notification
+        await notifee.displayNotification({
+          title: '🏘️ Changement de commune',
+          body: `Vous êtes maintenant à ${currentCommune}. Veuillez accéder à l'application pour vérifier les risques.`,
+          android: {
+            channelId: 'risk-alerts-final',
+            importance: AndroidImportance.HIGH,
+            vibrationPattern: [500, 500, 500],
+            sound: 'default',
+            pressAction: {
+              id: 'default',
+            },
+          },
+        });
+        
+        console.log('[BG] ✅ Notification changement commune envoyée');
+      } else if (!lastCommune) {
+        console.log(`[BG] 🏘️ Première détection: ${currentCommune}`);
+      } else {
+        console.log(`[BG] ✅ Toujours dans la même commune: ${currentCommune}`);
+      }
+      
+      // Sauvegarder la commune actuelle
+      await AsyncStorage.setItem('lastKnownCommune', currentCommune);
+      
+    } else {
+      console.warn('[BG] ⚠️ Aucune donnée commune retournée par l\'API');
+    }
+    
+  } catch (error: any) {
+    if (error.code === 'ECONNABORTED') {
+      console.error('[BG] ⏱️ Timeout API Géorisques');
+    } else if (error.response) {
+      console.error(`[BG] ❌ Erreur API Géorisques (${error.response.status}):`, error.response.data);
+    } else {
+      console.error('[BG] ❌ Erreur vérification commune:', error.message);
+    }
+    // Ne pas bloquer le reste du processus en cas d'erreur
+  }
 };
 
 const refreshRiskCache = async (latitude: number, longitude: number): Promise<void> => {
@@ -117,6 +270,11 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
     lastApiCall = Date.now();
     lastKnownPosition = { latitude, longitude };
     console.log(`[BG] ✅ Cache rafraîchi: ${cachedRisks.length} risques`);
+
+    // 🆕 VÉRIFIER CHANGEMENT DE COMMUNE
+    await checkCommuneChange(latitude, longitude);
+
+    
   } catch (error: any) {
     if (error.response?.status === 401) {
       console.error('[BG] ❌ Erreur 401 Unauthorized - Token expiré ou invalide');
@@ -222,6 +380,9 @@ const checkRisksFromCache = async (
 // La tâche en arrière-plan
 export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   console.log('[BG] 🚀 Headless JS Task démarré');
+  
+  // 🆕 VÉRIFIER LE RALENTISSEMENT EN PREMIER
+  await checkTaskSlowdown();
   
   // Charger la config depuis AsyncStorage
   await loadConfigFromStorage();

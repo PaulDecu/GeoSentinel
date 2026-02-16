@@ -25,14 +25,8 @@ export default function HomeScreen({ navigation }: Props) {
   const [dashboardMessage, setDashboardMessage] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState(true);
 
-  // 🆕 NOUVEAUX ÉTATS : Vérification abonnement
-  const [subscriptionValid, setSubscriptionValid] = useState<boolean>(true);
-  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
-  const [daysRemaining, setDaysRemaining] = useState<number>(0);
-
   useEffect(() => {
     loadDashboardMessage();
-    checkSubscriptionValidity();  // 🆕 Vérifier abonnement
   }, []);
 
   const loadDashboardMessage = async () => {
@@ -43,26 +37,6 @@ export default function HomeScreen({ navigation }: Props) {
       console.error('Erreur chargement message dashboard:', error);
     } finally {
       setLoadingMessage(false);
-    }
-  };
-
-  // 🆕 NOUVELLE FONCTION : Vérifier validité abonnement
-  const checkSubscriptionValidity = async () => {
-    setSubscriptionLoading(true);
-    try {
-      const status = await apiClient.checkSubscriptionStatus();
-      setSubscriptionValid(status.isValid);
-      setDaysRemaining(status.daysRemaining);
-      
-      console.log('📊 Abonnement:', status.isValid ? 'Valide' : 'Expiré');
-      if (status.isValid) {
-        console.log(`⏳ Jours restants: ${status.daysRemaining}`);
-      }
-    } catch (error) {
-      console.error('❌ Erreur vérification abonnement:', error);
-      setSubscriptionValid(false);
-    } finally {
-      setSubscriptionLoading(false);
     }
   };
 
@@ -113,32 +87,6 @@ export default function HomeScreen({ navigation }: Props) {
           </View>
         )}
 
-        {/* 🆕 BANNIÈRE ABONNEMENT EXPIRÉ */}
-        {!subscriptionLoading && !subscriptionValid && (
-          <View style={styles.expiredBanner}>
-            <Text style={styles.expiredIcon}>🚫</Text>
-            <View style={styles.expiredContent}>
-              <Text style={styles.expiredTitle}>Abonnement terminé</Text>
-              <Text style={styles.expiredMessage}>
-                Veuillez contacter votre administrateur pour le renouvellement.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* 🆕 ALERTE SI ABONNEMENT EXPIRE BIENTÔT (< 7 jours) */}
-        {!subscriptionLoading && subscriptionValid && daysRemaining > 0 && daysRemaining <= 7 && (
-          <View style={styles.warningBanner}>
-            <Text style={styles.warningIcon}>⚠️</Text>
-            <View style={styles.warningContent}>
-              <Text style={styles.warningTitle}>Abonnement arrive à expiration</Text>
-              <Text style={styles.warningMessage}>
-                Plus que {daysRemaining} jour{daysRemaining > 1 ? 's' : ''} restant{daysRemaining > 1 ? 's' : ''}.
-              </Text>
-            </View>
-          </View>
-        )}
-
         {/* Menu principal */}
         <View style={styles.menu}>
           <Text style={styles.menuTitle}>Que souhaitez-vous faire ?</Text>
@@ -148,51 +96,32 @@ export default function HomeScreen({ navigation }: Props) {
               key={index}
               style={[
                 styles.menuItem,
-                { borderLeftColor: item.color, borderLeftWidth: 4 },
-                !subscriptionValid && styles.menuItemDisabled,  // 🆕 Griser si expiré
+                { borderLeftColor: item.color, borderLeftWidth: 4 }
               ]}
-              onPress={subscriptionValid ? item.onPress : undefined}  // 🆕 Désactiver si expiré
-              activeOpacity={subscriptionValid ? 0.7 : 1}
-              disabled={!subscriptionValid}  // 🆕 Bouton désactivé
+              onPress={item.onPress}
+              activeOpacity={0.7}
             >
               <View style={styles.menuItemIcon}>
                 <Text style={styles.menuItemIconText}>{item.icon}</Text>
               </View>
               <View style={styles.menuItemContent}>
-                <Text style={[
-                  styles.menuItemTitle,
-                  !subscriptionValid && styles.textDisabled,  // 🆕
-                ]}>
-                  {item.title}
-                </Text>
-                <Text style={[
-                  styles.menuItemSubtitle,
-                  !subscriptionValid && styles.textDisabled,  // 🆕
-                ]}>
-                  {item.subtitle}
-                </Text>
+                <Text style={styles.menuItemTitle}>{item.title}</Text>
+                <Text style={styles.menuItemSubtitle}>{item.subtitle}</Text>
               </View>
-              <Text style={[
-                styles.menuItemArrow,
-                !subscriptionValid && styles.textDisabled,  // 🆕
-              ]}>
-                ›
-              </Text>
+              <Text style={styles.menuItemArrow}>›</Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Info */}
-        {subscriptionValid && (  // 🆕 Afficher uniquement si abonnement valide
-          <View style={styles.infoCard}>
-            <Text style={styles.infoIcon}>💡</Text>
-            <Text style={styles.infoText}>
-              <Text style={styles.infoBold}>Géolocalisation :</Text> Active le suivi en arrière-plan et reçois des alertes lorsque tu approches d'un risque.
-              {'\n\n'}
-              <Text style={styles.infoBold}>Mes Risques :</Text> Consulte la liste complète et crée de nouveaux signalements.
-            </Text>
-          </View>
-        )}
+        <View style={styles.infoCard}>
+          <Text style={styles.infoIcon}>💡</Text>
+          <Text style={styles.infoText}>
+            <Text style={styles.infoBold}>Géolocalisation :</Text> Active le suivi en arrière-plan et reçois des alertes lorsque tu approches d'un risque.
+            {'\n\n'}
+            <Text style={styles.infoBold}>Mes Risques :</Text> Consulte la liste complète et crée de nouveaux signalements.
+          </Text>
+        </View>
 
         {/* Bouton déconnexion */}
         <TouchableOpacity
@@ -290,70 +219,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textLight,
   },
-  // 🆕 STYLES BANNIÈRE ABONNEMENT EXPIRÉ
-  expiredBanner: {
-    backgroundColor: '#EF4444',
-    marginBottom: 20,
-    borderRadius: 12,
-    padding: 15,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  expiredIcon: {
-    fontSize: 28,
-    marginRight: 12,
-  },
-  expiredContent: {
-    flex: 1,
-  },
-  expiredTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
-  },
-  expiredMessage: {
-    fontSize: 14,
-    color: '#fff',
-    lineHeight: 20,
-  },
-  // 🆕 STYLES AVERTISSEMENT EXPIRATION PROCHE
-  warningBanner: {
-    backgroundColor: '#F59E0B',
-    marginBottom: 20,
-    borderRadius: 12,
-    padding: 15,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  warningIcon: {
-    fontSize: 28,
-    marginRight: 12,
-  },
-  warningContent: {
-    flex: 1,
-  },
-  warningTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
-  },
-  warningMessage: {
-    fontSize: 14,
-    color: '#fff',
-    lineHeight: 20,
-  },
   menu: {
     marginBottom: 30,
   },
@@ -375,14 +240,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-  },
-  // 🆕 STYLE BOUTON DÉSACTIVÉ
-  menuItemDisabled: {
-    opacity: 0.5,
-    backgroundColor: '#F3F4F6',
-  },
-  textDisabled: {
-    color: '#9CA3AF',
   },
   menuItemIcon: {
     width: 50,
