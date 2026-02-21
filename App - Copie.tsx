@@ -2,14 +2,9 @@
 import 'react-native-gesture-handler'; // DOIT ÊTRE EN PREMIER
 import React from 'react';
 import AppNavigator from './src/navigation/AppNavigator';
-//import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 function App(): React.JSX.Element {
-  return (
-   // <SafeAreaProvider>
-    <AppNavigator />
-    //</SafeAreaProvider>
-  )
-  }
+  return <AppNavigator />;
+}
 
 export default App;

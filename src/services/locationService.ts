@@ -3,6 +3,8 @@ import Geolocation from '@react-native-community/geolocation';
 import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, SystemSetting, TourneeType } from './api';
+import { resetNotificationCooldowns } from './locationBackgroundTask'; // Importez la nouvelle fonction
+
 
 const { LocationServiceBridge, PreferencesModule } = NativeModules;
 
@@ -159,6 +161,10 @@ export const locationService = {
     notifyCommuneChange: boolean = false  // 🆕 NOUVEAU PARAMÈTRE
   ): Promise<boolean> => {
     try {
+      // ✅ ON RÉINITIALISE ICI
+      resetNotificationCooldowns();
+      // Enregistrer l'heure de début
+      await AsyncStorage.setItem('trackingStartTime', String(Date.now()));
       console.log('🚀 DÉMARRAGE SERVICE NATIF ANDROID');
       console.log('🛡️ Service en arrière-plan avec notification permanente');
       console.log(`🏘️ Surveillance changement commune: ${notifyCommuneChange ? 'OUI' : 'NON'}`);

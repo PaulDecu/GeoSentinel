@@ -119,7 +119,7 @@ export default function AppNavigator() {
             name="ListRisks"
             component={ListRisksScreen}
             options={{
-              title: '📋 Mes Risques',
+              title: '📋 Mes Risques (que j\'ai créés)',
             }}
           />
 

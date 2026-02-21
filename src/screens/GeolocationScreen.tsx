@@ -121,16 +121,17 @@ export default function GeolocationScreen() {
       const risks = await apiClient.getNearbyRisks(latitude, longitude, 3000); // 3km de rayon
       
       if (risks) {
-        // Calculer la distance et filtrer ceux dans les 100m
+        // Calculer la distance et filtrer ceux dans les 500m
         const risksWithDistance: RiskWithDistance[] = risks
           .map(risk => ({
             ...risk,
             distance: calculateDistance(latitude, longitude, risk.latitude, risk.longitude)
           }))
-          .filter(risk => risk.distance <= 100)
+          .filter(risk => risk.distance <= 500)
           .sort((a, b) => a.distance - b.distance);
 
         setNearbyRisks(risksWithDistance);
+        console.log(risksWithDistance);
       }
     } catch (error) {
       console.error('Error loading risks:', error);
@@ -410,7 +411,7 @@ const handleStopTracking = async () => {
         {currentPosition && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>⚠️ Risques à proximité (100m)</Text>
+              <Text style={styles.cardTitle}>⚠️ Risques à proximité (500m)</Text>
               {loadingRisks && <ActivityIndicator size="small" color={COLORS.primary} />}
             </View>
             
@@ -573,15 +574,15 @@ const handleStopTracking = async () => {
               onPress={() => setTourneeType('pieds')}
             >
               <Text style={styles.tourneeButtonText}>🚶 À pieds</Text>
-              <Text style={styles.tourneeButtonSubtext}>Rayon: 60m • 5 min</Text>
+             
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.tourneeButton, tourneeType === 'velo' && styles.tourneeButtonSelected]}
               onPress={() => setTourneeType('velo')}
             >
-              <Text style={styles.tourneeButtonText}>🚴 À vélo</Text>
-              <Text style={styles.tourneeButtonSubtext}>Rayon: 100m • 3 min</Text>
+              <Text style={styles.tourneeButtonText} center>🚴 À vélo</Text>
+             
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -589,7 +590,7 @@ const handleStopTracking = async () => {
               onPress={() => setTourneeType('voiture')}
             >
               <Text style={styles.tourneeButtonText}>🚗 En voiture</Text>
-              <Text style={styles.tourneeButtonSubtext}>Rayon: 250m • 2 min</Text>
+             
             </TouchableOpacity>
           </View>
         )}

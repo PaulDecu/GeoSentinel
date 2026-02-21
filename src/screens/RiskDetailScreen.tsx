@@ -1,5 +1,5 @@
 // src/screens/RiskDetailScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,6 @@ import {
 import { apiClient, getErrorMessage } from '../services/api';
 import {
   COLORS,
-  RISK_CATEGORIES,
   RISK_SEVERITIES,
   VALIDATION,
   MESSAGES,
@@ -35,45 +34,59 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [title, setTitle] = useState(risk.title);
   const [description, setDescription] = useState(risk.description || '');
-  const [category, setCategory] = useState<RiskCategory>(risk.category);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(risk.categoryId);
   const [severity, setSeverity] = useState<RiskSeverity>(risk.severity);
+  const [categories, setCategories] = useState<RiskCategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  const getCategoryData = (cat: RiskCategory) => {
-    return RISK_CATEGORIES.find((c) => c.value === cat)!;
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  const loadCategories = async () => {
+    setLoadingCategories(true);
+    try {
+      const data = await apiClient.getRiskCategories();
+      setCategories(data);
+    } catch (e) {
+      console.error('Erreur chargement catégories:', e);
+    } finally {
+      setLoadingCategories(false);
+    }
   };
 
-  const getSeverityData = (sev: RiskSeverity) => {
-    return RISK_SEVERITIES.find((s) => s.value === sev)!;
+  // Résolution de la catégorie courante depuis les données dénormalisées ou la liste
+  const getCurrentCategory = (): RiskCategory | null => {
+    // Priorité aux données dénormalisées du risque
+    if (risk.categoryIcon !== undefined) {
+      return {
+        id: risk.categoryId,
+        name: risk.category || '',
+        label: risk.categoryLabel || risk.category || '',
+        color: risk.categoryColor || COLORS.primary,
+        icon: risk.categoryIcon || null,
+        position: 0,
+      };
+    }
+    return categories.find(c => c.id === selectedCategoryId) || null;
   };
 
   const handleUpdate = async () => {
     if (!title.trim() || title.length < VALIDATION.titleMinLength) {
-      Alert.alert(
-        'Erreur',
-        `Le titre doit contenir au moins ${VALIDATION.titleMinLength} caractères`
-      );
+      Alert.alert('Erreur', `Le titre doit contenir au moins ${VALIDATION.titleMinLength} caractères`);
       return;
     }
-
     setLoading(true);
-
     try {
       await apiClient.updateRisk(risk.id, {
         title: title.trim(),
         description: description.trim() || undefined,
-        category,
+        categoryId: selectedCategoryId,
         severity,
       });
-
       Alert.alert('Succès', MESSAGES.success.riskUpdated, [
-        {
-          text: 'OK',
-          onPress: () => {
-            setEditMode(false);
-            navigation.goBack();
-          },
-        },
+        { text: 'OK', onPress: () => { setEditMode(false); navigation.goBack(); } },
       ]);
     } catch (error) {
       Alert.alert('Erreur', getErrorMessage(error));
@@ -83,91 +96,55 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
   };
 
   const handleDelete = () => {
-    Alert.alert(
-      'Confirmer la suppression',
-      'Êtes-vous sûr de vouloir supprimer ce risque ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              await apiClient.deleteRisk(risk.id);
-              Alert.alert('Succès', MESSAGES.success.riskDeleted, [
-                {
-                  text: 'OK',
-                  onPress: () => navigation.goBack(),
-                },
-              ]);
-            } catch (error) {
-              Alert.alert('Erreur', getErrorMessage(error));
-            } finally {
-              setLoading(false);
-            }
-          },
+    Alert.alert('Confirmer la suppression', 'Êtes-vous sûr de vouloir supprimer ce risque ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer', style: 'destructive',
+        onPress: async () => {
+          setLoading(true);
+          try {
+            await apiClient.deleteRisk(risk.id);
+            Alert.alert('Succès', MESSAGES.success.riskDeleted, [
+              { text: 'OK', onPress: () => navigation.goBack() },
+            ]);
+          } catch (error) {
+            Alert.alert('Erreur', getErrorMessage(error));
+          } finally {
+            setLoading(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleCancel = () => {
     setTitle(risk.title);
     setDescription(risk.description || '');
-    setCategory(risk.category);
+    setSelectedCategoryId(risk.categoryId);
     setSeverity(risk.severity);
     setEditMode(false);
   };
 
-  const currentCategoryData = getCategoryData(category);
-  const currentSeverityData = getSeverityData(severity);
+  const currentCategory = getCurrentCategory();
+  const currentSeverityData = RISK_SEVERITIES.find(s => s.value === severity)!;
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
         {/* En-tête avec badges */}
-        <View
-          style={[
-            styles.header,
-            { backgroundColor: currentCategoryData.color + '20' },
-          ]}
-        >
+        <View style={[styles.header, { backgroundColor: (currentCategory?.color || COLORS.primary) + '20' }]}>
           <View style={styles.badges}>
-            <View
-              style={[
-                styles.categoryBadge,
-                { backgroundColor: currentCategoryData.color + '30' },
-              ]}
-            >
-              <Text style={styles.badgeIcon}>
-                {currentCategoryData.icon}
-              </Text>
-              <Text
-                style={[
-                  styles.badgeText,
-                  { color: currentCategoryData.color },
-                ]}
-              >
-                {currentCategoryData.label}
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.severityBadge,
-                { backgroundColor: currentSeverityData.bgColor },
-              ]}
-            >
-              <Text style={styles.badgeIcon}>
-                {currentSeverityData.icon}
-              </Text>
-              <Text
-                style={[
-                  styles.badgeText,
-                  { color: currentSeverityData.color },
-                ]}
-              >
+            {currentCategory && (
+              <View style={[styles.categoryBadge, { backgroundColor: currentCategory.color + '30' }]}>
+                {currentCategory.icon ? <Text style={styles.badgeIcon}>{currentCategory.icon}</Text> : null}
+                <Text style={[styles.badgeText, { color: currentCategory.color }]}>
+                  {currentCategory.label}
+                </Text>
+              </View>
+            )}
+            <View style={[styles.severityBadge, { backgroundColor: currentSeverityData.bgColor }]}>
+              <Text style={styles.badgeIcon}>{currentSeverityData.icon}</Text>
+              <Text style={[styles.badgeText, { color: currentSeverityData.color }]}>
                 {currentSeverityData.label}
               </Text>
             </View>
@@ -177,21 +154,14 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
         {/* Informations */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📍 Localisation</Text>
-
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Latitude</Text>
-            <Text style={styles.infoValue}>
-              {risk.latitude.toFixed(6)}
-            </Text>
+            <Text style={styles.infoValue}>{risk.latitude.toFixed(6)}</Text>
           </View>
-
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Longitude</Text>
-            <Text style={styles.infoValue}>
-              {risk.longitude.toFixed(6)}
-            </Text>
+            <Text style={styles.infoValue}>{risk.longitude.toFixed(6)}</Text>
           </View>
-
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Date de création</Text>
             <Text style={styles.infoValue}>
@@ -199,7 +169,6 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
               {new Date(risk.createdAt).toLocaleTimeString('fr-FR')}
             </Text>
           </View>
-
           {risk.creatorEmail && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Créé par</Text>
@@ -213,15 +182,8 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>📝 Titre *</Text>
           {editMode ? (
             <>
-              <TextInput
-                style={styles.input}
-                value={title}
-                onChangeText={setTitle}
-                maxLength={VALIDATION.titleMaxLength}
-              />
-              <Text style={styles.charCount}>
-                {title.length}/{VALIDATION.titleMaxLength}
-              </Text>
+              <TextInput style={styles.input} value={title} onChangeText={setTitle} maxLength={VALIDATION.titleMaxLength} />
+              <Text style={styles.charCount}>{title.length}/{VALIDATION.titleMaxLength}</Text>
             </>
           ) : (
             <Text style={styles.valueText}>{risk.title}</Text>
@@ -232,35 +194,30 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
         {editMode && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>🏷️ Catégorie *</Text>
-            <View style={styles.optionsContainer}>
-              {RISK_CATEGORIES.map((cat) => (
-                <TouchableOpacity
-                  key={cat.value}
-                  style={[
-                    styles.optionButton,
-                    category === cat.value && {
-                      backgroundColor: cat.color + '20',
-                      borderColor: cat.color,
-                      borderWidth: 2,
-                    },
-                  ]}
-                  onPress={() => setCategory(cat.value)}
-                >
-                  <Text style={styles.optionIcon}>{cat.icon}</Text>
-                  <Text
-                    style={[
-                      styles.optionText,
-                      category === cat.value && {
-                        color: cat.color,
-                        fontWeight: 'bold',
-                      },
-                    ]}
-                  >
-                    {cat.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {loadingCategories ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : (
+              <View style={styles.optionsContainer}>
+                {categories.map((cat) => {
+                  const selected = selectedCategoryId === cat.id;
+                  return (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={[
+                        styles.optionButton,
+                        selected && { backgroundColor: cat.color + '20', borderColor: cat.color, borderWidth: 2 },
+                      ]}
+                      onPress={() => setSelectedCategoryId(cat.id)}
+                    >
+                      {cat.icon ? <Text style={styles.optionIcon}>{cat.icon}</Text> : null}
+                      <Text style={[styles.optionText, selected && { color: cat.color, fontWeight: 'bold' }]}>
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </View>
         )}
 
@@ -274,24 +231,12 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
                   key={sev.value}
                   style={[
                     styles.severityButton,
-                    severity === sev.value && {
-                      backgroundColor: sev.bgColor,
-                      borderColor: sev.color,
-                      borderWidth: 2,
-                    },
+                    severity === sev.value && { backgroundColor: sev.bgColor, borderColor: sev.color, borderWidth: 2 },
                   ]}
                   onPress={() => setSeverity(sev.value)}
                 >
                   <Text style={styles.severityIcon}>{sev.icon}</Text>
-                  <Text
-                    style={[
-                      styles.severityText,
-                      severity === sev.value && {
-                        color: sev.color,
-                        fontWeight: 'bold',
-                      },
-                    ]}
-                  >
+                  <Text style={[styles.severityText, severity === sev.value && { color: sev.color, fontWeight: 'bold' }]}>
                     {sev.label}
                   </Text>
                 </TouchableOpacity>
@@ -314,14 +259,10 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
                 placeholder="Aucune description"
                 maxLength={VALIDATION.descriptionMaxLength}
               />
-              <Text style={styles.charCount}>
-                {description.length}/{VALIDATION.descriptionMaxLength}
-              </Text>
+              <Text style={styles.charCount}>{description.length}/{VALIDATION.descriptionMaxLength}</Text>
             </>
           ) : (
-            <Text style={styles.valueText}>
-              {risk.description || 'Aucune description'}
-            </Text>
+            <Text style={styles.valueText}>{risk.description || 'Aucune description'}</Text>
           )}
         </View>
 
@@ -329,45 +270,19 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
         <View style={styles.actions}>
           {!editMode ? (
             <>
-              <TouchableOpacity
-                style={[styles.button, styles.buttonEdit]}
-                onPress={() => setEditMode(true)}
-                disabled={loading}
-              >
+              <TouchableOpacity style={[styles.button, styles.buttonEdit]} onPress={() => setEditMode(true)} disabled={loading}>
                 <Text style={styles.buttonText}>✏️ Modifier</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.buttonDelete]}
-                onPress={handleDelete}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>🗑️ Supprimer</Text>
-                )}
+              <TouchableOpacity style={[styles.button, styles.buttonDelete]} onPress={handleDelete} disabled={loading}>
+                {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>🗑️ Supprimer</Text>}
               </TouchableOpacity>
             </>
           ) : (
             <>
-              <TouchableOpacity
-                style={[styles.button, styles.buttonSave]}
-                onPress={handleUpdate}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>💾 Sauvegarder</Text>
-                )}
+              <TouchableOpacity style={[styles.button, styles.buttonSave]} onPress={handleUpdate} disabled={loading}>
+                {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>💾 Sauvegarder</Text>}
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.buttonCancel]}
-                onPress={handleCancel}
-                disabled={loading}
-              >
+              <TouchableOpacity style={[styles.button, styles.buttonCancel]} onPress={handleCancel} disabled={loading}>
                 <Text style={styles.buttonText}>✕ Annuler</Text>
               </TouchableOpacity>
             </>
@@ -377,6 +292,7 @@ export default function RiskDetailScreen({ route, navigation }: Props) {
     </ScrollView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

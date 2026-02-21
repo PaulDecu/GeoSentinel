@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { apiClient, getErrorMessage } from '../services/api';
-import { COLORS, RISK_CATEGORIES, RISK_SEVERITIES } from '../utils/constants';
+import { COLORS, RISK_SEVERITIES } from '../utils/constants';
 import { Risk, RiskCategory, RiskSeverity } from '../types';
 
 import { useAuthStore } from '../stores/authStore';
@@ -29,14 +29,24 @@ export default function ListRisksScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
-  
+  const [categories, setCategories] = useState<RiskCategory[]>([]);
 
   // Charger les risques au focus de l'écran
   useFocusEffect(
     useCallback(() => {
       loadRisks();
+      loadCategories();
     }, [])
   );
+
+  const loadCategories = async () => {
+    try {
+      const data = await apiClient.getRiskCategories();
+      setCategories(data);
+    } catch (e) {
+      console.error('Erreur chargement catégories:', e);
+    }
+  };
 
   const loadRisks = async (isRefreshing = false) => {
     if (isRefreshing) {
@@ -67,7 +77,7 @@ export default function ListRisksScreen({ navigation }: Props) {
     let filtered = risksList;
 
     if (catFilter !== 'all') {
-      filtered = filtered.filter((r) => r.category === catFilter);
+      filtered = filtered.filter((r) => r.categoryId === catFilter);
     }
 
     if (sevFilter !== 'all') {
@@ -149,14 +159,20 @@ export default function ListRisksScreen({ navigation }: Props) {
     navigation.navigate('RiskDetail', { risk });
   };
 
-  const getCategoryIcon = (category: RiskCategory) => {
-    const cat = RISK_CATEGORIES.find((c) => c.value === category);
-    return cat ? cat.icon : '⚠️';
+  const getCategoryById = (categoryId: string): RiskCategory | undefined => {
+    return categories.find(c => c.id === categoryId);
   };
 
-  const getCategoryColor = (category: RiskCategory) => {
-    const cat = RISK_CATEGORIES.find((c) => c.value === category);
-    return cat ? cat.color : COLORS.textLight;
+  const getCategoryIcon = (item: Risk): string => {
+    return item.categoryIcon || getCategoryById(item.categoryId)?.icon || '⚠️';
+  };
+
+  const getCategoryColor = (item: Risk): string => {
+    return item.categoryColor || getCategoryById(item.categoryId)?.color || COLORS.textLight;
+  };
+
+  const getCategoryLabel = (item: Risk): string => {
+    return item.categoryLabel || getCategoryById(item.categoryId)?.label || item.category || '';
   };
 
   const getSeverityData = (severity: RiskSeverity) => {
@@ -172,7 +188,7 @@ export default function ListRisksScreen({ navigation }: Props) {
 
   const renderRiskItem = ({ item }: { item: Risk }) => {
     const isSelected = selectedRisks.has(item.id);
-    const categoryColor = getCategoryColor(item.category);
+    const categoryColor = getCategoryColor(item);
     const severityData = getSeverityData(item.severity);
 
     return (
@@ -208,10 +224,10 @@ export default function ListRisksScreen({ navigation }: Props) {
                 ]}
               >
                 <Text style={styles.categoryIcon}>
-                  {getCategoryIcon(item.category)}
+                  {getCategoryIcon(item)}
                 </Text>
                 <Text style={[styles.categoryText, { color: categoryColor }]}>
-                  {item.category}
+                  {getCategoryLabel(item)}
                 </Text>
               </View>
 
@@ -278,16 +294,16 @@ export default function ListRisksScreen({ navigation }: Props) {
                   Toutes
                 </Text>
               </TouchableOpacity>
-              {RISK_CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <TouchableOpacity
-                  key={cat.value}
+                  key={cat.id}
                   style={[
                     styles.filterButton,
-                    categoryFilter === cat.value && styles.filterButtonActive,
+                    categoryFilter === cat.id && styles.filterButtonActive,
                   ]}
-                  onPress={() => setCategoryFilter(cat.value)}
+                  onPress={() => setCategoryFilter(cat.id)}
                 >
-                  <Text style={styles.filterButtonText}>{cat.icon}</Text>
+                  <Text style={styles.filterButtonText}>{cat.icon || cat.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>

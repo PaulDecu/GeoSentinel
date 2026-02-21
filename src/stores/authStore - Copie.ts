@@ -27,7 +27,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       
       // Sauvegarder les tokens
       await AsyncStorage.setItem('accessToken', response.accessToken);
-      await AsyncStorage.setItem('refreshToken', response.refreshToken);
+      
+      // ✅ Sauvegarder le refreshToken seulement s'il existe
+      if (response.refreshToken) {
+        await AsyncStorage.setItem('refreshToken', response.refreshToken);
+      }
+      
       await AsyncStorage.setItem('user', JSON.stringify(response.user));
 
       set({

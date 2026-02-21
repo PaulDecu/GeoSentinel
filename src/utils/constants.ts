@@ -1,87 +1,55 @@
 // src/utils/constants.ts
-import { RiskCategory, RiskSeverity } from '../types/index.ts';
+import { RiskSeverity } from '../types/index.ts';
 
 export const COLORS = {
   // Couleurs principales
-  primary: '#0891b2',      // Cyan (primary-600)
-  secondary: '#3b82f6',    // Blue
-  success: '#22c55e',      // Green
-  warning: '#f59e0b',      // Orange
-  danger: '#ef4444',       // Red
-  critical: '#a855f7',     // Violet
-  
+  primary: '#0891b2',
+  secondary: '#3b82f6',
+  success: '#22c55e',
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  critical: '#a855f7',
   // Texte
-  text: '#0f172a',         // Slate-900
-  textLight: '#64748b',    // Slate-500
-  
+  text: '#0f172a',
+  textLight: '#64748b',
   // Fond
-  background: '#f8fafc',   // Slate-50
+  background: '#f8fafc',
   cardBackground: '#ffffff',
-  
   // Bordures
-  border: '#e2e8f0',       // Slate-200
-  disabled: '#cbd5e1',     // Slate-300
+  border: '#e2e8f0',
+  disabled: '#cbd5e1',
 };
 
-// Catégories de risques avec icônes
-export const RISK_CATEGORIES = [
-  {
-    value: RiskCategory.NATUREL,
-    label: 'Naturel',
-    icon: '🌊',
-    color: COLORS.primary,
-    description: 'Inondation, séisme, tempête...',
-  },
-  {
-    value: RiskCategory.TECHNOLOGIQUE,
-    label: 'Technologique',
-    icon: '⚙️',
-    color: COLORS.warning,
-    description: 'Industriel, transport, infrastructure...',
-  },
-  {
-    value: RiskCategory.SANITAIRE,
-    label: 'Sanitaire',
-    icon: '🏥',
-    color: COLORS.danger,
-    description: 'Épidémie, contamination...',
-  },
-  {
-    value: RiskCategory.SOCIAL,
-    label: 'Social',
-    icon: '👥',
-    color: COLORS.secondary,
-    description: 'Manifestation, émeute...',
-  },
-];
+// ✅ RISK_CATEGORIES supprimé — chargé dynamiquement depuis l'API par tenant
+// Utilisez le hook useRiskCategories() ou apiClient.getRiskCategories()
 
 // Sévérités de risques
 export const RISK_SEVERITIES = [
   {
     value: RiskSeverity.FAIBLE,
     label: 'Faible',
-    icon: '🟢',
+    icon: '🟡',
     color: COLORS.success,
     bgColor: '#dcfce7',  // green-100
   },
   {
     value: RiskSeverity.MODERE,
     label: 'Modéré',
-    icon: '🟡',
+    icon: '🟠',
     color: COLORS.warning,
     bgColor: '#fef3c7',  // yellow-100
   },
   {
     value: RiskSeverity.ELEVE,
     label: 'Élevé',
-    icon: '🟠',
+    icon: '🔴',
     color: COLORS.danger,
     bgColor: '#fee2e2',  // red-100
   },
   {
     value: RiskSeverity.CRITIQUE,
     label: 'Critique',
-    icon: '🔴',
+    icon: '⚫',
     color: COLORS.critical,
     bgColor: '#f3e8ff',  // purple-100
   },

@@ -5,9 +5,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
-  ActivityIndicator,
+    ActivityIndicator,
 } from 'react-native';
+//import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native';
 import { useAuthStore } from '../stores/authStore';
 import { apiClient } from '../services/api';
 import { COLORS } from '../utils/constants';

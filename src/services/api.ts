@@ -1,7 +1,7 @@
 // src/services/api.ts
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LoginResponse, Risk, User, ApiError } from '../types';
+import { LoginResponse, Risk, RiskCategory, User, ApiError } from '../types';
 
 const API_URL = 'http://10.0.2.2:3000/api'; // Android emulator
 // const API_URL = 'http://localhost:3000/api'; // iOS simulator
@@ -187,7 +187,7 @@ class ApiClient {
   async createRisk(data: {
     title: string;
     description?: string;
-    category: string;
+    categoryId: string;
     severity: string;
     latitude: number;
     longitude: number;
@@ -201,7 +201,7 @@ class ApiClient {
     data: {
       title?: string;
       description?: string;
-      category?: string;
+      categoryId?: string;
       severity?: string;
       latitude?: number;
       longitude?: number;
@@ -301,10 +301,24 @@ class ApiClient {
   }
 
 
+    // ========== RISK CATEGORIES ==========
+
+  async getRiskCategories(): Promise<RiskCategory[]> {
+    try {
+      const response = await this.client.get<RiskCategory[]>('/tenants/risk-categories');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error getting risk categories:', error);
+      return [];
+    }
+  }
+
+  // ========== SUBSCRIPTION ==========
+
   /**
- * 🆕 Vérifier la validité de l'abonnement du tenant
- */
-async checkSubscriptionStatus(): Promise<{
+   * 🆕 Vérifier la validité de l'abonnement du tenant
+   */
+  async checkSubscriptionStatus(): Promise<{
   isValid: boolean;
   subscriptionEnd: string | null;
   daysRemaining: number;

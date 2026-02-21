@@ -2,7 +2,7 @@
 import notifee, { AndroidImportance, AndroidVisibility } from '@notifee/react-native';
 import { Platform } from 'react-native';
 
-const CHANNEL_ID = 'risk-alerts-final';
+const CHANNEL_ID = 'GeoSentinel_Alert';
 
 interface RiskData {
   id: string | number;
@@ -16,7 +16,7 @@ interface NotificationData {
 }
 
 export const notificationService = {
-  // Nettoyer les anciens canaux
+  /* Nettoyer les anciens canaux
   cleanupOldChannels: async (): Promise<void> => {
     if (Platform.OS === 'android') {
       console.log('🧹 Nettoyage des anciens canaux...');
@@ -41,7 +41,7 @@ export const notificationService = {
       
       console.log('✅ Nettoyage terminé');
     }
-  },
+  },*/
 
   // Initialiser le service
   initialize: async (): Promise<boolean> => {
@@ -49,7 +49,7 @@ export const notificationService = {
       console.log('🔔 Initialisation du service de notifications...');
       
       // 1. Nettoyer les anciens canaux
-      await notificationService.cleanupOldChannels();
+      //await notificationService.cleanupOldChannels();
       
       // 2. Demander les permissions
       const settings = await notifee.requestPermission();

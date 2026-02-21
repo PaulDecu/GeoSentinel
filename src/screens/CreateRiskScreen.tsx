@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { apiClient, getErrorMessage } from '../services/api';
 import { locationService } from '../services/locationService';
-import { COLORS, RISK_CATEGORIES, RISK_SEVERITIES, VALIDATION, MESSAGES } from '../utils/constants';
+import { COLORS, RISK_SEVERITIES, VALIDATION, MESSAGES } from '../utils/constants';
 import { RiskCategory, RiskSeverity } from '../types';
 
 interface Props {
@@ -22,8 +22,10 @@ interface Props {
 export default function CreateRiskScreen({ navigation }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<RiskCategory | ''>('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [severity, setSeverity] = useState<RiskSeverity | ''>('');
+  const [categories, setCategories] = useState<RiskCategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const [gpsPosition, setGpsPosition] = useState<{
     latitude: number;
     longitude: number;
@@ -34,7 +36,20 @@ export default function CreateRiskScreen({ navigation }: Props) {
 
   useEffect(() => {
     getGPSPosition();
+    loadCategories();
   }, []);
+
+  const loadCategories = async () => {
+    setLoadingCategories(true);
+    try {
+      const data = await apiClient.getRiskCategories();
+      setCategories(data);
+    } catch (e) {
+      console.error('Erreur chargement catégories:', e);
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
 
   const getGPSPosition = async () => {
     setGettingLocation(true);
@@ -44,10 +59,7 @@ export default function CreateRiskScreen({ navigation }: Props) {
       setGpsPosition(position);
     } catch (error) {
       setError(MESSAGES.errors.location);
-      Alert.alert(
-        'Erreur',
-        "Impossible d'obtenir votre position GPS. Vérifiez les permissions."
-      );
+      Alert.alert('Erreur', "Impossible d'obtenir votre position GPS. Vérifiez les permissions.");
     } finally {
       setGettingLocation(false);
     }
@@ -58,54 +70,40 @@ export default function CreateRiskScreen({ navigation }: Props) {
       setError(`Le titre doit contenir au moins ${VALIDATION.titleMinLength} caractères`);
       return false;
     }
-
     if (title.length > VALIDATION.titleMaxLength) {
       setError(`Le titre ne doit pas dépasser ${VALIDATION.titleMaxLength} caractères`);
       return false;
     }
-
     if (!gpsPosition) {
       setError('Position GPS non disponible');
       return false;
     }
-
-    if (!category) {
+    if (!selectedCategoryId) {
       setError('La catégorie est obligatoire');
       return false;
     }
-
     if (!severity) {
       setError('La sévérité est obligatoire');
       return false;
     }
-
     return true;
   };
 
   const handleCreate = async () => {
     setError('');
-
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     setLoading(true);
-
     try {
       await apiClient.createRisk({
         title: title.trim(),
         description: description.trim() || undefined,
-        category: category as RiskCategory,
+        categoryId: selectedCategoryId,
         severity: severity as RiskSeverity,
         latitude: gpsPosition!.latitude,
         longitude: gpsPosition!.longitude,
       });
-
       Alert.alert('Succès', MESSAGES.success.riskCreated, [
-        {
-          text: 'OK',
-          onPress: () => navigation.goBack(),
-        },
+        { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (error) {
       const message = getErrorMessage(error);
@@ -129,14 +127,12 @@ export default function CreateRiskScreen({ navigation }: Props) {
             placeholder="Ex: Chien dangereux, Trou dans la chaussée..."
             maxLength={VALIDATION.titleMaxLength}
           />
-          <Text style={styles.charCount}>
-            {title.length}/{VALIDATION.titleMaxLength}
-          </Text>
+          <Text style={styles.charCount}>{title.length}/{VALIDATION.titleMaxLength}</Text>
         </View>
 
         {/* Position GPS */}
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Position GPS *</Text>
+          <Text style={styles.label}>Le risque sera créé pour votre position GPS actuelle</Text>
           <View style={styles.gpsContainer}>
             {gettingLocation ? (
               <ActivityIndicator size="small" color={COLORS.primary} />
@@ -147,53 +143,48 @@ export default function CreateRiskScreen({ navigation }: Props) {
             ) : (
               <Text style={styles.errorText}>Position non disponible</Text>
             )}
-            <TouchableOpacity
-              style={styles.gpsButton}
-              onPress={getGPSPosition}
-              disabled={gettingLocation}
-            >
-              <Text style={styles.gpsButtonText}>
-                {gettingLocation ? 'Recherche...' : '🔄 Actualiser'}
-              </Text>
+            <TouchableOpacity style={styles.gpsButton} onPress={getGPSPosition} disabled={gettingLocation}>
+              <Text style={styles.gpsButtonText}>{gettingLocation ? 'Recherche...' : '🔄 Actualiser'}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Catégorie */}
+        {/* Catégorie — chargée dynamiquement */}
         <View style={styles.formGroup}>
           <Text style={styles.label}>Catégorie *</Text>
-          <View style={styles.optionsContainer}>
-            {RISK_CATEGORIES.map((cat) => (
-              <TouchableOpacity
-                key={cat.value}
-                style={[
-                  styles.optionButton,
-                  category === cat.value && {
-                    backgroundColor: cat.color + '20',
-                    borderColor: cat.color,
-                    borderWidth: 2,
-                  },
-                ]}
-                onPress={() => setCategory(cat.value)}
-              >
-                <Text style={styles.optionIcon}>{cat.icon}</Text>
-                <View style={styles.optionContent}>
-                  <Text
+          {loadingCategories ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : (
+            <View style={styles.optionsContainer}>
+              {categories.map((cat) => {
+                const selected = selectedCategoryId === cat.id;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
                     style={[
-                      styles.optionText,
-                      category === cat.value && {
-                        color: cat.color,
-                        fontWeight: 'bold',
+                      styles.optionButton,
+                      selected && {
+                        backgroundColor: cat.color + '20',
+                        borderColor: cat.color,
+                        borderWidth: 2,
                       },
                     ]}
+                    onPress={() => setSelectedCategoryId(cat.id)}
                   >
-                    {cat.label}
-                  </Text>
-                  <Text style={styles.optionDescription}>{cat.description}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
+                    {cat.icon ? <Text style={styles.optionIcon}>{cat.icon}</Text> : null}
+                    <View style={styles.optionContent}>
+                      <Text style={[styles.optionText, selected && { color: cat.color, fontWeight: 'bold' }]}>
+                        {cat.label}
+                      </Text>
+                    </View>
+                    {selected && (
+                      <View style={[styles.colorDot, { backgroundColor: cat.color }]} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         {/* Sévérité */}
@@ -214,15 +205,7 @@ export default function CreateRiskScreen({ navigation }: Props) {
                 onPress={() => setSeverity(sev.value)}
               >
                 <Text style={styles.severityIcon}>{sev.icon}</Text>
-                <Text
-                  style={[
-                    styles.severityText,
-                    severity === sev.value && {
-                      color: sev.color,
-                      fontWeight: 'bold',
-                    },
-                  ]}
-                >
+                <Text style={[styles.severityText, severity === sev.value && { color: sev.color, fontWeight: 'bold' }]}>
                   {sev.label}
                 </Text>
               </TouchableOpacity>
@@ -242,27 +225,22 @@ export default function CreateRiskScreen({ navigation }: Props) {
             numberOfLines={4}
             maxLength={VALIDATION.descriptionMaxLength}
           />
-          <Text style={styles.charCount}>
-            {description.length}/{VALIDATION.descriptionMaxLength}
-          </Text>
+          <Text style={styles.charCount}>{description.length}/{VALIDATION.descriptionMaxLength}</Text>
         </View>
 
-        {/* Message d'erreur */}
         {error ? (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>⚠️ {error}</Text>
           </View>
         ) : null}
 
-        {/* Bouton Créer */}
         <TouchableOpacity
           style={[
             styles.createButton,
-            (!gpsPosition || !title || !category || !severity || loading) &&
-              styles.createButtonDisabled,
+            (!gpsPosition || !title || !selectedCategoryId || !severity || loading) && styles.createButtonDisabled,
           ]}
           onPress={handleCreate}
-          disabled={!gpsPosition || !title || !category || !severity || loading}
+          disabled={!gpsPosition || !title || !selectedCategoryId || !severity || loading}
         >
           {loading ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -274,6 +252,7 @@ export default function CreateRiskScreen({ navigation }: Props) {
     </ScrollView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -418,5 +397,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  colorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginLeft: 8,
   },
 });

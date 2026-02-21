@@ -1,6 +1,8 @@
 // src/stores/authStore.ts
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NativeModules } from 'react-native';
+const { PreferencesModule } = NativeModules;
 import { User } from '../types';
 import { apiClient } from '../services/api';
 
@@ -35,6 +37,17 @@ export const useAuthStore = create<AuthState>((set) => ({
       
       await AsyncStorage.setItem('user', JSON.stringify(response.user));
 
+      // ✅ Sauvegarder aussi dans SharedPreferences pour le background task
+      // (le Headless JS tourne dans un contexte isolé sans accès à AsyncStorage)
+      if (PreferencesModule && response.refreshToken) {
+        try {
+          await PreferencesModule.setTokens(response.accessToken, response.refreshToken);
+          console.log('[Auth] ✅ Tokens sauvegardés dans SharedPreferences');
+        } catch (e) {
+          console.warn('[Auth] ⚠️ Impossible de sauvegarder dans SharedPreferences:', e);
+        }
+      }
+
       set({
         user: response.user,
         isAuthenticated: true,
@@ -57,6 +70,24 @@ export const useAuthStore = create<AuthState>((set) => ({
       console.error('Logout error:', error);
     } finally {
       await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
+
+      // ✅ Ne PAS effacer le refreshToken des SharedPreferences si le service background
+      // est actif (tourneeType présent = service en cours)
+      // Le background task en a besoin pour renouveler le JWT même après déconnexion de l'app
+      const trackingActive = await AsyncStorage.getItem('tourneeType');
+      if (PreferencesModule) {
+        try {
+          if (trackingActive) {
+            // Service actif — effacer seulement l'accessToken, garder le refreshToken
+            await PreferencesModule.setAccessToken('');
+            console.log('[Auth] Service background actif — refreshToken conservé dans SharedPreferences');
+          } else {
+            // Service inactif — tout effacer
+            await PreferencesModule.clearTokens();
+          }
+        } catch (e) {}
+      }
+
       set({
         user: null,
         isAuthenticated: false,

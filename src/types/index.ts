@@ -7,11 +7,14 @@ export enum UserRole {
   UTILISATEUR = 'utilisateur',
 }
 
-export enum RiskCategory {
-  NATUREL = 'naturel',
-  TECHNOLOGIQUE = 'technologique',
-  SANITAIRE = 'sanitaire',
-  SOCIAL = 'social',
+// ✅ RiskCategory est maintenant dynamique (chargé depuis l'API par tenant)
+export interface RiskCategory {
+  id: string;
+  name: string;   // clé technique ex: 'naturel'
+  label: string;  // libellé affiché ex: 'Naturel'
+  color: string;  // hex ex: '#10B981'
+  icon: string | null;  // emoji ex: '🌪️'
+  position: number;
 }
 
 export enum RiskSeverity {
@@ -58,7 +61,12 @@ export interface Risk {
   id: string;
   title: string;
   description?: string;
-  category: RiskCategory;
+  // ✅ categoryId remplace category enum
+  categoryId: string;
+  category?: string;       // name technique dénormalisé ex: 'naturel'
+  categoryLabel?: string;  // libellé dénormalisé ex: 'Naturel'
+  categoryColor?: string;  // couleur dénormalisée ex: '#10B981'
+  categoryIcon?: string;   // icône dénormalisée ex: '🌪️'
   severity: RiskSeverity;
   latitude: number;
   longitude: number;

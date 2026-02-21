@@ -2,9 +2,91 @@
 // Headless JS Task - S'exécute en arrière-plan avec configuration depuis AsyncStorage
 import Geolocation from '@react-native-community/geolocation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NativeModules } from 'react-native';
 import { apiClient, TourneeType } from './api';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 import axios from 'axios';
+
+const { PreferencesModule } = NativeModules;
+const API_URL = 'http://10.0.2.2:3000/api';
+
+// ✅ Lit le token depuis SharedPreferences (accessible depuis le contexte Headless JS isolé)
+const getTokenFromPrefs = async (key: 'accessToken' | 'refreshToken'): Promise<string | null> => {
+  try {
+    if (PreferencesModule) {
+      // SharedPreferences — partagé entre tous les contextes JS
+      const allKeys = await AsyncStorage.getAllKeys();
+      // Tenter d'abord AsyncStorage (contexte normal)
+      if (allKeys.includes(key)) {
+        return await AsyncStorage.getItem(key);
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+// ✅ Rafraîchit le token JWT depuis SharedPreferences
+const refreshTokenIfNeeded = async (): Promise<boolean> => {
+  try {
+
+    console.log('[BG] PreferencesModule disponible:', !!PreferencesModule);
+    console.log('[BG] getRefreshToken disponible:', !!PreferencesModule?.getRefreshToken);
+    if (PreferencesModule?.getRefreshToken) {
+      const rt = await PreferencesModule.getRefreshToken();
+      console.log('[BG] refreshToken depuis SharedPreferences:', !!rt);
+    }
+    // Lire le refreshToken depuis SharedPreferences via PreferencesModule natif
+    let refreshToken: string | null = null;
+
+    if (PreferencesModule?.getRefreshToken) {
+      refreshToken = await PreferencesModule.getRefreshToken();
+    }
+
+    // Fallback sur AsyncStorage
+    if (!refreshToken) {
+      refreshToken = await AsyncStorage.getItem('refreshToken');
+    }
+
+    const allKeys = await AsyncStorage.getAllKeys();
+    console.log('[BG] Clés AsyncStorage disponibles:', allKeys);
+
+    if (!refreshToken) {
+      console.error('[BG] ❌ Pas de refreshToken — impossible de renouveler la session');
+      return false;
+    }
+
+    console.log('[BG] 🔄 Tentative de refresh du token JWT...');
+
+    const response = await axios.post(
+      `${API_URL}/auth/refresh`,
+      { refreshToken },
+      { timeout: 10000 }
+    );
+
+    const { accessToken, refreshToken: newRefreshToken } = response.data;
+
+    // Sauvegarder dans AsyncStorage
+    await AsyncStorage.setItem('accessToken', accessToken);
+    if (newRefreshToken) {
+      await AsyncStorage.setItem('refreshToken', newRefreshToken);
+    }
+
+    // ✅ Sauvegarder aussi dans SharedPreferences pour les prochaines exécutions
+    if (PreferencesModule?.setTokens) {
+      await PreferencesModule.setTokens(accessToken, newRefreshToken || refreshToken);
+    } else if (PreferencesModule?.setAccessToken) {
+      await PreferencesModule.setAccessToken(accessToken);
+    }
+
+    console.log('[BG] ✅ Token JWT renouvelé avec succès');
+    return true;
+  } catch (error: any) {
+    console.error('[BG] ❌ Échec refresh token:', error.message);
+    return false;
+  }
+};
 
 interface Risk {
   id: string;
@@ -57,6 +139,84 @@ const EXPECTED_TASK_INTERVAL = 45000; // 45 secondes (intervalle attendu max)
 const SLOWDOWN_NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes entre notifications de ralentissement
 let lastSlowdownNotification = 0;
 
+
+
+//const MAX_TRACKING_DURATION = 4 * 60 * 60 * 1000; // 4 heures en millisecondes
+const MAX_TRACKING_DURATION = 12 * 60 * 1000; // 30 minutes en millisecondes
+const WARNING_BEFORE_END = 6 * 60 * 1000;       // Alerte 15 minutes avant
+let hasSentWarning = false;                      // Mémoire pour ne pas spammer l'alerte
+
+const checkMaxDuration = async (): Promise<boolean> => {
+  try {
+    const startTimeStr = await AsyncStorage.getItem('trackingStartTime');
+    if (!startTimeStr) return false;
+
+    const startTime = parseInt(startTimeStr);
+    const elapsed = Date.now() - startTime;
+
+    // --- 1. ALERTE DE PRÉVENANCE (15 min avant) ---
+    if (elapsed >= (MAX_TRACKING_DURATION - WARNING_BEFORE_END) && !hasSentWarning) {
+      await notifee.displayNotification({
+        title: '⏳ Fin de session proche',
+        body: 'Votre session de tracking s\'arrêtera automatiquement dans 15 minutes.',
+        android: {
+          channelId: 'risk-alerts-final',
+          importance: AndroidImportance.HIGH,
+        },
+      });
+      hasSentWarning = true; // On marque comme envoyé pour ce cycle
+      console.log('[BG] ⚠️ Alerte de fin de session envoyée');
+    }
+
+    // --- 2. ARRÊT TOTAL (4h atteintes) ---
+    if (elapsed >= MAX_TRACKING_DURATION) {
+      console.log('[BG] 🛑 Limite des 4h atteinte.');
+
+      await notifee.displayNotification({
+        title: '🏁 Session terminée',
+        body: 'Le délai de 4h est expiré. Veuillez relancer le tracking manuellement.',
+        android: {
+          channelId: 'risk-alerts-final',
+          importance: AndroidImportance.HIGH,
+        },
+      });
+
+      // Procédure d'arrêt (identique à votre code précédent)
+      if (NativeModules.LocationServiceBridge) {
+        await NativeModules.LocationServiceBridge.stopService();
+       }
+        // 2. Nettoyer TOUTES les clés de contrôle immédiatement
+       await AsyncStorage.multiRemove([
+      'tourneeType', 
+      'trackingStartTime', 
+      'lastTaskRun'
+       ]);
+      // 3. Stopper le service natif
+      if (NativeModules.LocationServiceBridge) {
+      await NativeModules.LocationServiceBridge.stopService();
+      }
+      return true; // Stop l'exécution
+    }
+    
+    return false;
+  } catch (error) {
+    return false;
+  }
+};
+
+/**
+ * Force la réinitialisation des notifications pour que le cooldown 
+ * reparte à zéro au prochain lancement du service.
+ */
+export const resetNotificationCooldowns = () => {
+  notifiedRisks.clear();
+  notificationTimestamps.clear();
+  lastSlowdownNotification = 0;
+  lastSlowdownNotification = 0;
+  hasSentWarning = false; // <--- IMPORTANT : reset aussi l'alerte de fin
+  console.log('[BG] 🧹 Tous les cooldowns ont été réinitialisés');
+};
+
 // ✅ Lire les paramètres depuis AsyncStorage
 const loadConfigFromStorage = async (): Promise<void> => {
   try {
@@ -72,7 +232,10 @@ const loadConfigFromStorage = async (): Promise<void> => {
       LOCATION_CONFIG.updateInterval = parseInt(apiCallDelayMinutes) * 60 * 1000;
       LOCATION_CONFIG.alertRadius = parseInt(alertRadiusMeters);
       LOCATION_CONFIG.radiusRecherche = parseInt(riskLoadZoneKm);
-      
+
+      // Dans n'importe quel composant, ajoutez temporairement :
+
+   
       console.log(`[BG] ✅ Configuration chargée:`);
       console.log(`[BG]    - Type: ${tourneeType}`);
       console.log(`[BG]    - Rayon alerte: ${LOCATION_CONFIG.alertRadius}m`);
@@ -209,7 +372,7 @@ const checkCommuneChange = async (latitude: number, longitude: number): Promise<
           android: {
             channelId: 'risk-alerts-final',
             importance: AndroidImportance.HIGH,
-            vibrationPattern: [500, 500, 500],
+            vibrationPattern: [500, 500, 500,500],
             sound: 'default',
             pressAction: {
               id: 'default',
@@ -252,38 +415,65 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
     // ✅ Vérifier que le token est présent
     const token = await AsyncStorage.getItem('accessToken');
     if (!token) {
-      console.error('[BG] ❌ Pas de token disponible - Impossible d\'appeler l\'API');
-      console.log('[BG] ⚠️ Utilisation du cache existant');
-      return;
+      console.warn('[BG] ⚠️ Pas de token — tentative de refresh avant appel API');
+      const refreshed = await refreshTokenIfNeeded();
+      if (!refreshed) {
+        console.error('[BG] ❌ Impossible de renouveler la session — utilisation du cache');
+        return;
+      }
     }
     
     console.log(`[BG] ✅ Token présent, appel getNearbyRisks`);
     
-    // Appel API avec le client TypeScript
-    const risks = await apiClient.getNearbyRisks(
-      latitude,
-      longitude,
-      LOCATION_CONFIG.radiusRecherche * 1000 // Convertir km en mètres
-    );
-    
-    cachedRisks = risks || [];
-    lastApiCall = Date.now();
-    lastKnownPosition = { latitude, longitude };
-    console.log(`[BG] ✅ Cache rafraîchi: ${cachedRisks.length} risques`);
+    try {
+      // Premier essai
+      const risks = await apiClient.getNearbyRisks(
+        latitude,
+        longitude,
+        LOCATION_CONFIG.radiusRecherche * 1000
+      );
+      
+      cachedRisks = risks || [];
+      lastApiCall = Date.now();
+      lastKnownPosition = { latitude, longitude };
+      console.log(`[BG] ✅ Cache rafraîchi: ${cachedRisks.length} risques`);
 
-    // 🆕 VÉRIFIER CHANGEMENT DE COMMUNE
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        // ✅ Token expiré — on tente le refresh puis on réessaie UNE fois
+        console.warn('[BG] ⚠️ Token expiré (401) — tentative de refresh...');
+        const refreshed = await refreshTokenIfNeeded();
+
+        if (refreshed) {
+          console.log('[BG] 🔁 Nouvelle tentative après refresh token...');
+          try {
+            const risks = await apiClient.getNearbyRisks(
+              latitude,
+              longitude,
+              LOCATION_CONFIG.radiusRecherche * 1000
+            );
+            cachedRisks = risks || [];
+            lastApiCall = Date.now();
+            lastKnownPosition = { latitude, longitude };
+            console.log(`[BG] ✅ Cache rafraîchi après refresh: ${cachedRisks.length} risques`);
+          } catch (retryError: any) {
+            console.error('[BG] ❌ Échec après refresh token:', retryError.message);
+            console.log('[BG] ⚠️ Utilisation du cache existant');
+          }
+        } else {
+          console.error('[BG] ❌ Refresh token échoué — session expirée, cache conservé');
+        }
+      } else {
+        console.error('[BG] ❌ Erreur API:', error.message);
+        console.log('[BG] ⚠️ Utilisation du cache existant');
+      }
+    }
+
+    // 🆕 VÉRIFIER CHANGEMENT DE COMMUNE (indépendant du résultat)
     await checkCommuneChange(latitude, longitude);
 
-    
   } catch (error: any) {
-    if (error.response?.status === 401) {
-      console.error('[BG] ❌ Erreur 401 Unauthorized - Token expiré ou invalide');
-      console.log('[BG] ⚠️ Utilisation du cache existant (risques déjà chargés)');
-    } else {
-      console.error('[BG] ❌ Erreur cache:', error.message);
-    }
-    
-    // Ne pas throw l'erreur, continuer avec le cache existant
+    console.error('[BG] ❌ Erreur inattendue refreshRiskCache:', error.message);
   }
 };
 
@@ -381,6 +571,10 @@ const checkRisksFromCache = async (
 export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   console.log('[BG] 🚀 Headless JS Task démarré');
   
+  // arrêt tache de fond au bout de 4h 
+  const isExpired = await checkMaxDuration();
+  if (isExpired) return; // Si le délai est dépassé, on arrête tout de suite
+
   // 🆕 VÉRIFIER LE RALENTISSEMENT EN PREMIER
   await checkTaskSlowdown();
   

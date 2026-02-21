@@ -1,4 +1,12 @@
-Relancer Metro proprement :
+Backend :
+npm run start:dev
+
+Front end :
+npm run dev
+
+
+---------------------------------------
+Debug mobile Relancer
 npm start -- --reset-cache
 
 
@@ -13,8 +21,9 @@ cd ..
 npx react-native run-android
 
 
+--------------------------------------------
 
-Regarder les logs natifs Android pour voir l'erreur exacte :
+Regarder les logs natifs Android pour voir l'erregit addur exacte :
 adb logcat *:E | grep -i "location\|permission\|gms"
 
 logs :
