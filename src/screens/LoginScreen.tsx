@@ -1,5 +1,5 @@
 // src/screens/LoginScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,42 +14,92 @@ import {
 } from 'react-native';
 import { useAuthStore } from '../stores/authStore';
 import { COLORS, VALIDATION, MESSAGES, URLS } from '../utils/constants';
-import { getErrorMessage } from '../services/api';
+import { apiClient, getErrorMessage } from '../services/api';
+import { isUsingFallback } from '../services/serverConfig';
+
+type ServerStatus = 'idle' | 'probing' | 'ok' | 'fallback' | 'unreachable';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('idle');
 
   const login = useAuthStore((state) => state.login);
+
+  // ── Probe du serveur au montage de l'écran ────────────────────────────────
+  // On le fait en arrière-plan pour que l'utilisateur puisse déjà saisir ses
+  // identifiants. La probe est silencieuse sauf en cas d'échec total.
+  useEffect(() => {
+    probeServer();
+  }, []);
+
+  const probeServer = async (): Promise<boolean> => {
+    setServerStatus('probing');
+    setError('');
+
+    try {
+      const { isFallback } = await apiClient.resolveServer();
+      setServerStatus(isFallback ? 'fallback' : 'ok');
+      return true;
+    } catch {
+      setServerStatus('unreachable');
+      setError(
+        'Impossible de contacter le serveur.\nVérifiez votre connexion réseau ou contactez votre administrateur.'
+      );
+      return false;
+    }
+  };
 
   const validateForm = (): boolean => {
     if (!email || !VALIDATION.emailRegex.test(email)) {
       setError(MESSAGES.errors.invalidEmail);
       return false;
     }
-
     if (!password || password.length < VALIDATION.passwordMinLength) {
       setError(MESSAGES.errors.invalidPassword);
       return false;
     }
-
     return true;
   };
 
   const handleLogin = async () => {
     setError('');
 
-    if (!validateForm()) {
-      return;
+    if (!validateForm()) return;
+
+    // Si le serveur n'est pas encore résolu (probe en cours ou non démarré),
+    // on tente d'abord la probe
+    if (serverStatus === 'probing' || serverStatus === 'idle') {
+      setLoading(true);
+      const ok = await probeServer();
+      if (!ok) {
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Serveur inaccessible → on relance la probe avant d'abandonner
+    if (serverStatus === 'unreachable') {
+      setLoading(true);
+      const ok = await probeServer();
+      if (!ok) {
+        setLoading(false);
+        Alert.alert(
+          'Serveur inaccessible',
+          'Impossible de contacter le serveur principal ou le serveur de secours.\n\nVérifiez votre connexion réseau.',
+          [{ text: 'Réessayer', onPress: () => probeServer() }, { text: 'OK' }]
+        );
+        return;
+      }
     }
 
     setLoading(true);
 
     try {
       await login(email.toLowerCase().trim(), password);
-      // La navigation se fera automatiquement via AppNavigator
+      // La navigation se fait automatiquement via AppNavigator
     } catch (err) {
       const message = getErrorMessage(err);
       setError(message);
@@ -68,6 +118,48 @@ export default function LoginScreen() {
     });
   };
 
+  // ── Indicateur de statut serveur ──────────────────────────────────────────
+  const renderServerStatus = () => {
+    switch (serverStatus) {
+      case 'probing':
+        return (
+          <View style={styles.serverStatus}>
+            <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 8 }} />
+            <Text style={styles.serverStatusText}>Connexion au serveur en cours…</Text>
+          </View>
+        );
+      case 'ok':
+        return (
+          <View style={[styles.serverStatus, styles.serverStatusOk]}>
+            <Text style={styles.serverStatusTextOk}>✅ Serveur principal connecté</Text>
+          </View>
+        );
+      case 'fallback':
+        return (
+          <View style={[styles.serverStatus, styles.serverStatusWarning]}>
+            <Text style={styles.serverStatusTextWarning}>
+              ⚠️ Serveur principal indisponible — connexion via le serveur de secours
+            </Text>
+          </View>
+        );
+      case 'unreachable':
+        return (
+          <View style={[styles.serverStatus, styles.serverStatusError]}>
+            <Text style={styles.serverStatusTextError}>
+              🔴 Serveur inaccessible
+            </Text>
+            <TouchableOpacity onPress={probeServer} style={styles.retryButton}>
+              <Text style={styles.retryText}>Réessayer</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const isServerUnreachable = serverStatus === 'unreachable';
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -83,6 +175,9 @@ export default function LoginScreen() {
           <Text style={styles.subtitle}>Gestion des Risques Géolocalisés</Text>
         </View>
 
+        {/* Statut serveur */}
+        {renderServerStatus()}
+
         {/* Formulaire */}
         <View style={styles.form}>
           <Text style={styles.formTitle}>Connexion</Text>
@@ -91,17 +186,14 @@ export default function LoginScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Email *</Text>
             <TextInput
-              style={[styles.input, error && styles.inputError]}
+              style={[styles.input, (error || isServerUnreachable) && styles.inputError]}
               value={email}
-              onChangeText={(text) => {
-                setEmail(text);
-                setError('');
-              }}
+              onChangeText={(text) => { setEmail(text); setError(''); }}
               placeholder="votre.email@exemple.com"
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
-              editable={!loading}
+              editable={!loading && !isServerUnreachable}
             />
           </View>
 
@@ -109,17 +201,14 @@ export default function LoginScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Mot de passe *</Text>
             <TextInput
-              style={[styles.input, error && styles.inputError]}
+              style={[styles.input, (error || isServerUnreachable) && styles.inputError]}
               value={password}
-              onChangeText={(text) => {
-                setPassword(text);
-                setError('');
-              }}
+              onChangeText={(text) => { setPassword(text); setError(''); }}
               placeholder="••••••••"
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
-              editable={!loading}
+              editable={!loading && !isServerUnreachable}
             />
           </View>
 
@@ -136,19 +225,17 @@ export default function LoginScreen() {
             onPress={handleForgotPassword}
             disabled={loading}
           >
-            <Text style={styles.forgotPasswordText}>
-              Mot de passe oublié ?
-            </Text>
+            <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
           </TouchableOpacity>
 
           {/* Bouton Connexion */}
           <TouchableOpacity
             style={[
               styles.button,
-              (!email || !password || loading) && styles.buttonDisabled,
+              (!email || !password || loading || isServerUnreachable) && styles.buttonDisabled,
             ]}
             onPress={handleLogin}
-            disabled={!email || !password || loading}
+            disabled={!email || !password || loading || isServerUnreachable}
           >
             {loading ? (
               <ActivityIndicator size="small" color="#fff" />
@@ -185,7 +272,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   logoContainer: {
     width: 100,
@@ -198,9 +285,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.primary,
   },
-  logoIcon: {
-    fontSize: 50,
-  },
+  logoIcon: { fontSize: 50 },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
@@ -212,6 +297,33 @@ const styles = StyleSheet.create({
     color: COLORS.textLight,
     textAlign: 'center',
   },
+
+  // ── Statut serveur ─────────────────────────────────────────────────────────
+  serverStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    backgroundColor: '#f1f5f9',
+  },
+  serverStatusOk: { backgroundColor: '#f0fdf4' },
+  serverStatusWarning: { backgroundColor: '#fffbeb', flexDirection: 'column' },
+  serverStatusError: { backgroundColor: '#fef2f2', flexDirection: 'column', alignItems: 'center', gap: 8 },
+  serverStatusText: { color: COLORS.textLight, fontSize: 13 },
+  serverStatusTextOk: { color: '#166534', fontSize: 13, fontWeight: '600' },
+  serverStatusTextWarning: { color: '#92400e', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  serverStatusTextError: { color: '#991b1b', fontSize: 13, fontWeight: '700' },
+  retryButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  retryText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+
+  // ── Formulaire ─────────────────────────────────────────────────────────────
   form: {
     backgroundColor: COLORS.cardBackground,
     padding: 25,
@@ -228,9 +340,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginBottom: 20,
   },
-  inputGroup: {
-    marginBottom: 20,
-  },
+  inputGroup: { marginBottom: 20 },
   label: {
     fontSize: 14,
     fontWeight: '600',
@@ -245,9 +355,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#fff',
   },
-  inputError: {
-    borderColor: COLORS.danger,
-  },
+  inputError: { borderColor: COLORS.danger },
   errorContainer: {
     backgroundColor: '#fee2e2',
     padding: 12,
@@ -256,14 +364,8 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: COLORS.danger,
   },
-  errorText: {
-    color: COLORS.danger,
-    fontSize: 14,
-  },
-  forgotPassword: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
+  errorText: { color: COLORS.danger, fontSize: 14 },
+  forgotPassword: { alignItems: 'center', marginBottom: 20 },
   forgotPasswordText: {
     color: COLORS.primary,
     fontSize: 14,
@@ -276,27 +378,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
-  buttonDisabled: {
-    backgroundColor: COLORS.disabled,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
+  buttonDisabled: { backgroundColor: COLORS.disabled },
+  buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   info: {
-    marginTop: 30,
+    marginTop: 20,
     padding: 15,
     backgroundColor: '#fef3c7',
     borderRadius: 12,
     borderLeftWidth: 4,
     borderLeftColor: COLORS.warning,
   },
-  infoText: {
-    fontSize: 13,
-    color: COLORS.text,
-    lineHeight: 20,
-  },
+  infoText: { fontSize: 13, color: COLORS.text, lineHeight: 20 },
   version: {
     textAlign: 'center',
     color: COLORS.textLight,

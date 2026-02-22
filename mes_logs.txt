@@ -1,0 +1,7 @@
+info Starting logkitty
+[2m[09:59:16][22m I | [1mReactNativeJS[22m ▶︎ Running "GeoSentinel" with {"rootTag":1,"initialProps":{},"fabric":true}
+
+[2m[09:59:25][22m I | [1mReactNative[22m ▶︎ [GESTURE HANDLER] Initialize gesture handler for root view com.facebook.react.runtime.ReactSurfaceView{f2b473a V.E...... ......ID 0,0-1080,2201 #1}
+
+[2m[09:59:26][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mInteractionManager has been deprecated and will be removed in a future release. Please refactor long tasks into smaller ones, and  use 'requestIdleCallback' instead.[39m
+

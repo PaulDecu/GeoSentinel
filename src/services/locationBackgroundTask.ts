@@ -6,17 +6,27 @@ import { NativeModules } from 'react-native';
 import { apiClient, TourneeType } from './api';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 import axios from 'axios';
+import { ACTIVE_API_URL_KEY } from './serverConfig';
 
 const { PreferencesModule } = NativeModules;
-const API_URL = 'http://10.0.2.2:3000/api';
 
-// ✅ Lit le token depuis SharedPreferences (accessible depuis le contexte Headless JS isolé)
+// ── Résolution de l'URL active pour le contexte Headless JS ──────────────────
+// Dans un contexte Headless JS (service de fond), serverConfig.ts n'a pas
+// de mémoire vive persistante. On lit donc directement depuis AsyncStorage
+// l'URL que le LoginScreen a persistée lors de la connexion.
+const getApiUrl = async (): Promise<string> => {
+  const stored = await AsyncStorage.getItem(ACTIVE_API_URL_KEY);
+  if (stored) return stored;
+  // Fallback ultime (ne devrait jamais arriver si l'utilisateur s'est connecté)
+  console.warn('[BG] ⚠️ Aucune URL serveur en storage, utilisation URL par défaut');
+  return 'http://10.0.2.2:3000/api';
+};
+
+// ✅ Lit le token depuis SharedPreferences ou AsyncStorage
 const getTokenFromPrefs = async (key: 'accessToken' | 'refreshToken'): Promise<string | null> => {
   try {
     if (PreferencesModule) {
-      // SharedPreferences — partagé entre tous les contextes JS
       const allKeys = await AsyncStorage.getAllKeys();
-      // Tenter d'abord AsyncStorage (contexte normal)
       if (allKeys.includes(key)) {
         return await AsyncStorage.getItem(key);
       }
@@ -30,18 +40,14 @@ const getTokenFromPrefs = async (key: 'accessToken' | 'refreshToken'): Promise<s
 // ✅ Rafraîchit le token JWT depuis SharedPreferences
 const refreshTokenIfNeeded = async (): Promise<boolean> => {
   try {
-
     console.log('[BG] PreferencesModule disponible:', !!PreferencesModule);
     console.log('[BG] getRefreshToken disponible:', !!PreferencesModule?.getRefreshToken);
-    if (PreferencesModule?.getRefreshToken) {
-      const rt = await PreferencesModule.getRefreshToken();
-      console.log('[BG] refreshToken depuis SharedPreferences:', !!rt);
-    }
-    // Lire le refreshToken depuis SharedPreferences via PreferencesModule natif
+
     let refreshToken: string | null = null;
 
     if (PreferencesModule?.getRefreshToken) {
       refreshToken = await PreferencesModule.getRefreshToken();
+      console.log('[BG] refreshToken depuis SharedPreferences:', !!refreshToken);
     }
 
     // Fallback sur AsyncStorage
@@ -59,21 +65,22 @@ const refreshTokenIfNeeded = async (): Promise<boolean> => {
 
     console.log('[BG] 🔄 Tentative de refresh du token JWT...');
 
+    // Lire l'URL active depuis AsyncStorage (persistée au login)
+    const apiUrl = await getApiUrl();
+
     const response = await axios.post(
-      `${API_URL}/auth/refresh`,
+      `${apiUrl}/auth/refresh`,
       { refreshToken },
       { timeout: 10000 }
     );
 
     const { accessToken, refreshToken: newRefreshToken } = response.data;
 
-    // Sauvegarder dans AsyncStorage
     await AsyncStorage.setItem('accessToken', accessToken);
     if (newRefreshToken) {
       await AsyncStorage.setItem('refreshToken', newRefreshToken);
     }
 
-    // ✅ Sauvegarder aussi dans SharedPreferences pour les prochaines exécutions
     if (PreferencesModule?.setTokens) {
       await PreferencesModule.setTokens(accessToken, newRefreshToken || refreshToken);
     } else if (PreferencesModule?.setAccessToken) {
@@ -101,8 +108,8 @@ interface Risk {
 
 interface LocationConfig {
   radiusRecherche: number; // km
-  alertRadius: number; // m
-  updateInterval: number; // ms
+  alertRadius: number;     // m
+  updateInterval: number;  // ms
 }
 
 interface CachedPosition {
@@ -110,12 +117,10 @@ interface CachedPosition {
   longitude: number;
 }
 
-// 🆕 INTERFACE POUR LA RÉPONSE API GEORISQUES
 interface GeorisquesResponse {
   data: Array<{
     libelle_commune: string;
     code_insee: string;
-    // ... autres champs
   }>;
 }
 
@@ -125,8 +130,8 @@ let lastKnownPosition: CachedPosition | null = null;
 
 // Valeurs par défaut
 let LOCATION_CONFIG: LocationConfig = {
-  radiusRecherche: 3, // km
-  alertRadius: 100, // m
+  radiusRecherche: 3,   // km
+  alertRadius: 100,     // m
   updateInterval: 180000, // 3 min
 };
 
@@ -134,17 +139,13 @@ const notifiedRisks = new Set<string>();
 const notificationTimestamps = new Map<string, number>();
 const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
-// 🆕 DÉTECTION RALENTISSEMENT
-const EXPECTED_TASK_INTERVAL = 45000; // 45 secondes (intervalle attendu max)
-const SLOWDOWN_NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes entre notifications de ralentissement
+const EXPECTED_TASK_INTERVAL = 45000;
+const SLOWDOWN_NOTIFICATION_COOLDOWN = 5 * 60 * 1000;
 let lastSlowdownNotification = 0;
 
-
-
-//const MAX_TRACKING_DURATION = 4 * 60 * 60 * 1000; // 4 heures en millisecondes
-const MAX_TRACKING_DURATION = 12 * 60 * 1000; // 30 minutes en millisecondes
-const WARNING_BEFORE_END = 6 * 60 * 1000;       // Alerte 15 minutes avant
-let hasSentWarning = false;                      // Mémoire pour ne pas spammer l'alerte
+const MAX_TRACKING_DURATION = 12 * 60 * 1000;
+const WARNING_BEFORE_END = 6 * 60 * 1000;
+let hasSentWarning = false;
 
 const checkMaxDuration = async (): Promise<boolean> => {
   try {
@@ -154,88 +155,63 @@ const checkMaxDuration = async (): Promise<boolean> => {
     const startTime = parseInt(startTimeStr);
     const elapsed = Date.now() - startTime;
 
-    // --- 1. ALERTE DE PRÉVENANCE (15 min avant) ---
     if (elapsed >= (MAX_TRACKING_DURATION - WARNING_BEFORE_END) && !hasSentWarning) {
       await notifee.displayNotification({
         title: '⏳ Fin de session proche',
-        body: 'Votre session de tracking s\'arrêtera automatiquement dans 15 minutes.',
-        android: {
-          channelId: 'risk-alerts-final',
-          importance: AndroidImportance.HIGH,
-        },
+        body: "Votre session de tracking s'arrêtera automatiquement dans 15 minutes.",
+        android: { channelId: 'risk-alerts-final', importance: AndroidImportance.HIGH },
       });
-      hasSentWarning = true; // On marque comme envoyé pour ce cycle
+      hasSentWarning = true;
       console.log('[BG] ⚠️ Alerte de fin de session envoyée');
     }
 
-    // --- 2. ARRÊT TOTAL (4h atteintes) ---
     if (elapsed >= MAX_TRACKING_DURATION) {
       console.log('[BG] 🛑 Limite des 4h atteinte.');
 
       await notifee.displayNotification({
         title: '🏁 Session terminée',
         body: 'Le délai de 4h est expiré. Veuillez relancer le tracking manuellement.',
-        android: {
-          channelId: 'risk-alerts-final',
-          importance: AndroidImportance.HIGH,
-        },
+        android: { channelId: 'risk-alerts-final', importance: AndroidImportance.HIGH },
       });
 
-      // Procédure d'arrêt (identique à votre code précédent)
       if (NativeModules.LocationServiceBridge) {
         await NativeModules.LocationServiceBridge.stopService();
-       }
-        // 2. Nettoyer TOUTES les clés de contrôle immédiatement
-       await AsyncStorage.multiRemove([
-      'tourneeType', 
-      'trackingStartTime', 
-      'lastTaskRun'
-       ]);
-      // 3. Stopper le service natif
-      if (NativeModules.LocationServiceBridge) {
-      await NativeModules.LocationServiceBridge.stopService();
       }
-      return true; // Stop l'exécution
+      await AsyncStorage.multiRemove(['tourneeType', 'trackingStartTime', 'lastTaskRun']);
+      if (NativeModules.LocationServiceBridge) {
+        await NativeModules.LocationServiceBridge.stopService();
+      }
+      return true;
     }
-    
+
     return false;
   } catch (error) {
     return false;
   }
 };
 
-/**
- * Force la réinitialisation des notifications pour que le cooldown 
- * reparte à zéro au prochain lancement du service.
- */
 export const resetNotificationCooldowns = () => {
   notifiedRisks.clear();
   notificationTimestamps.clear();
   lastSlowdownNotification = 0;
-  lastSlowdownNotification = 0;
-  hasSentWarning = false; // <--- IMPORTANT : reset aussi l'alerte de fin
+  hasSentWarning = false;
   console.log('[BG] 🧹 Tous les cooldowns ont été réinitialisés');
 };
 
-// ✅ Lire les paramètres depuis AsyncStorage
 const loadConfigFromStorage = async (): Promise<void> => {
   try {
     console.log('[BG] 📖 Lecture configuration depuis AsyncStorage');
-    
+
     const tourneeType = await AsyncStorage.getItem('tourneeType');
     const apiCallDelayMinutes = await AsyncStorage.getItem('apiCallDelayMinutes');
     const alertRadiusMeters = await AsyncStorage.getItem('alertRadiusMeters');
     const riskLoadZoneKm = await AsyncStorage.getItem('riskLoadZoneKm');
-    
+
     if (apiCallDelayMinutes && alertRadiusMeters && riskLoadZoneKm) {
-      // Utiliser les paramètres sauvegardés
       LOCATION_CONFIG.updateInterval = parseInt(apiCallDelayMinutes) * 60 * 1000;
       LOCATION_CONFIG.alertRadius = parseInt(alertRadiusMeters);
       LOCATION_CONFIG.radiusRecherche = parseInt(riskLoadZoneKm);
 
-      // Dans n'importe quel composant, ajoutez temporairement :
-
-   
       console.log(`[BG] ✅ Configuration chargée:`);
       console.log(`[BG]    - Type: ${tourneeType}`);
       console.log(`[BG]    - Rayon alerte: ${LOCATION_CONFIG.alertRadius}m`);
@@ -249,30 +225,24 @@ const loadConfigFromStorage = async (): Promise<void> => {
   }
 };
 
-// 🆕 NOUVELLE FONCTION : Vérifier le ralentissement de la tâche
 const checkTaskSlowdown = async (): Promise<void> => {
   try {
     const now = Date.now();
     const lastTaskRunStr = await AsyncStorage.getItem('lastTaskRun');
-    
+
     if (lastTaskRunStr) {
       const lastTaskRun = parseInt(lastTaskRunStr);
       const timeSinceLastRun = now - lastTaskRun;
-      
-      console.log(`[BG] ⏱️ Temps écoulé depuis dernière activation: ${Math.round(timeSinceLastRun / 1000)}s`);
-      
-      // Si le délai dépasse 30 secondes
+
+      console.log(`[BG] ⏱️ Temps depuis dernière activation: ${Math.round(timeSinceLastRun / 1000)}s`);
+
       if (timeSinceLastRun > EXPECTED_TASK_INTERVAL) {
         const delayInSeconds = Math.round(timeSinceLastRun / 1000);
-        console.warn(`[BG] ⚠️ RALENTISSEMENT DÉTECTÉ: ${delayInSeconds}s (attendu: 30s max)`);
-        
-        // Vérifier le cooldown des notifications de ralentissement
+        console.warn(`[BG] ⚠️ RALENTISSEMENT DÉTECTÉ: ${delayInSeconds}s`);
+
         const timeSinceLastSlowdownNotif = now - lastSlowdownNotification;
-        
+
         if (timeSinceLastSlowdownNotif > SLOWDOWN_NOTIFICATION_COOLDOWN) {
-          console.log('[BG] 🚨 Envoi notification ralentissement');
-          
-          // Envoyer notification à l'utilisateur
           await notifee.displayNotification({
             title: '⚠️ Service ralenti',
             body: `Le service de surveillance a été ralenti par le système (${delayInSeconds}s). Pour garantir une surveillance optimale, veuillez arrêter puis relancer le tracking.`,
@@ -281,20 +251,13 @@ const checkTaskSlowdown = async (): Promise<void> => {
               importance: AndroidImportance.HIGH,
               vibrationPattern: [500, 500, 500, 500],
               sound: 'default',
-              pressAction: {
-                id: 'default',
-              },
-              // Notification persistante pour attirer l'attention
+              pressAction: { id: 'default' },
               ongoing: false,
               autoCancel: true,
             },
           });
-          
           lastSlowdownNotification = now;
           console.log('[BG] ✅ Notification ralentissement envoyée');
-        } else {
-          const remainingMinutes = Math.ceil((SLOWDOWN_NOTIFICATION_COOLDOWN - timeSinceLastSlowdownNotif) / 1000 / 60);
-          console.log(`[BG] ⏳ Notification ralentissement - cooldown actif (${remainingMinutes}min restantes)`);
         }
       } else {
         console.log(`[BG] ✅ Intervalle normal (${Math.round(timeSinceLastRun / 1000)}s)`);
@@ -302,98 +265,69 @@ const checkTaskSlowdown = async (): Promise<void> => {
     } else {
       console.log('[BG] 📍 Première exécution de la tâche');
     }
-    
-    // Sauvegarder le timestamp de cette exécution
-    await AsyncStorage.setItem('lastTaskRun', String(now));
-    
+
+    await AsyncStorage.setItem('lastTaskRun', String(Date.now()));
   } catch (error) {
     console.error('[BG] ❌ Erreur vérification ralentissement:', error);
   }
 };
 
-const calculateDistance = (
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number => {
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) *
-    Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) *
-    Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c * 1000; // en mètres
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1000;
 };
 
-// 🆕 NOUVELLE FONCTION : Vérifier le changement de commune
 const checkCommuneChange = async (latitude: number, longitude: number): Promise<void> => {
   try {
-    // Vérifier si la surveillance de commune est activée
     const notifyCommune = await AsyncStorage.getItem('notifyCommuneChange');
-    
     if (notifyCommune !== 'true') {
       console.log('[BG] 🏘️ Surveillance commune désactivée');
       return;
     }
-    
+
     console.log('[BG] 🏘️ Vérification changement de commune...');
-    
-    // Appel API Géorisques pour récupérer la commune
     const apiUrl = `https://georisques.gouv.fr/api/v1/gaspar/risques?latlon=${longitude},${latitude}&rayon=20`;
-    console.log(`[BG] 📡 Appel API Géorisques: ${apiUrl}`);
-    
     const response = await axios.get<GeorisquesResponse>(apiUrl, {
       timeout: 10000,
-      headers: {
-        'Accept': 'application/json',
-      }
+      headers: { 'Accept': 'application/json' },
     });
-    
-    if (response.data && response.data.data && response.data.data.length > 0) {
+
+    if (response.data?.data?.length > 0) {
       const currentCommune = response.data.data[0].libelle_commune;
       console.log(`[BG] 🏘️ Commune actuelle: ${currentCommune}`);
-      
-      // Récupérer la dernière commune connue
+
       const lastCommune = await AsyncStorage.getItem('lastKnownCommune');
-      
+
       if (lastCommune && lastCommune !== currentCommune) {
-        // ✅ CHANGEMENT DE COMMUNE DÉTECTÉ !
         console.log(`[BG] 🚨 CHANGEMENT DE COMMUNE: ${lastCommune} → ${currentCommune}`);
-        
-        // Envoyer notification
         await notifee.displayNotification({
           title: '🏘️ Changement de commune',
           body: `Vous êtes maintenant à ${currentCommune}. Veuillez accéder à l'application pour vérifier les risques.`,
           android: {
             channelId: 'risk-alerts-final',
             importance: AndroidImportance.HIGH,
-            vibrationPattern: [500, 500, 500,500],
+            vibrationPattern: [500, 500, 500, 500],
             sound: 'default',
-            pressAction: {
-              id: 'default',
-            },
+            pressAction: { id: 'default' },
           },
         });
-        
         console.log('[BG] ✅ Notification changement commune envoyée');
       } else if (!lastCommune) {
         console.log(`[BG] 🏘️ Première détection: ${currentCommune}`);
       } else {
         console.log(`[BG] ✅ Toujours dans la même commune: ${currentCommune}`);
       }
-      
-      // Sauvegarder la commune actuelle
+
       await AsyncStorage.setItem('lastKnownCommune', currentCommune);
-      
     } else {
-      console.warn('[BG] ⚠️ Aucune donnée commune retournée par l\'API');
+      console.warn("[BG] ⚠️ Aucune donnée commune retournée par l'API");
     }
-    
   } catch (error: any) {
     if (error.code === 'ECONNABORTED') {
       console.error('[BG] ⏱️ Timeout API Géorisques');
@@ -402,7 +336,6 @@ const checkCommuneChange = async (latitude: number, longitude: number): Promise<
     } else {
       console.error('[BG] ❌ Erreur vérification commune:', error.message);
     }
-    // Ne pas bloquer le reste du processus en cas d'erreur
   }
 };
 
@@ -411,8 +344,7 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
     const now = new Date();
     const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
     console.log(`[BG] date : ${dateStr} - Tentative refresh cache`);
-    
-    // ✅ Vérifier que le token est présent
+
     const token = await AsyncStorage.getItem('accessToken');
     if (!token) {
       console.warn('[BG] ⚠️ Pas de token — tentative de refresh avant appel API');
@@ -422,28 +354,23 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
         return;
       }
     }
-    
-    console.log(`[BG] ✅ Token présent, appel getNearbyRisks`);
-    
+
+    console.log('[BG] ✅ Token présent, appel getNearbyRisks');
+
     try {
-      // Premier essai
       const risks = await apiClient.getNearbyRisks(
         latitude,
         longitude,
         LOCATION_CONFIG.radiusRecherche * 1000
       );
-      
       cachedRisks = risks || [];
       lastApiCall = Date.now();
       lastKnownPosition = { latitude, longitude };
       console.log(`[BG] ✅ Cache rafraîchi: ${cachedRisks.length} risques`);
-
     } catch (error: any) {
       if (error.response?.status === 401) {
-        // ✅ Token expiré — on tente le refresh puis on réessaie UNE fois
         console.warn('[BG] ⚠️ Token expiré (401) — tentative de refresh...');
         const refreshed = await refreshTokenIfNeeded();
-
         if (refreshed) {
           console.log('[BG] 🔁 Nouvelle tentative après refresh token...');
           try {
@@ -458,20 +385,16 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
             console.log(`[BG] ✅ Cache rafraîchi après refresh: ${cachedRisks.length} risques`);
           } catch (retryError: any) {
             console.error('[BG] ❌ Échec après refresh token:', retryError.message);
-            console.log('[BG] ⚠️ Utilisation du cache existant');
           }
         } else {
           console.error('[BG] ❌ Refresh token échoué — session expirée, cache conservé');
         }
       } else {
         console.error('[BG] ❌ Erreur API:', error.message);
-        console.log('[BG] ⚠️ Utilisation du cache existant');
       }
     }
 
-    // 🆕 VÉRIFIER CHANGEMENT DE COMMUNE (indépendant du résultat)
     await checkCommuneChange(latitude, longitude);
-
   } catch (error: any) {
     console.error('[BG] ❌ Erreur inattendue refreshRiskCache:', error.message);
   }
@@ -480,50 +403,36 @@ const refreshRiskCache = async (latitude: number, longitude: number): Promise<vo
 const shouldRefreshCache = (latitude: number, longitude: number): boolean => {
   if (cachedRisks.length === 0 || !lastKnownPosition) return true;
   if (Date.now() - lastApiCall > LOCATION_CONFIG.updateInterval) return true;
-  
+
   const distance = calculateDistance(
     lastKnownPosition.latitude,
     lastKnownPosition.longitude,
     latitude,
     longitude
   );
-  
   return distance > (LOCATION_CONFIG.radiusRecherche - 1) * 1000;
 };
 
-const checkRisksFromCache = async (
-  latitude: number,
-  longitude: number
-): Promise<Risk[]> => {
+const checkRisksFromCache = async (latitude: number, longitude: number): Promise<Risk[]> => {
   const nearbyRisks: Risk[] = [];
   const now = Date.now();
-  
-  // 1. Trouver tous les risques à proximité
-  cachedRisks.forEach(risk => {
-    const distance = calculateDistance(
-      latitude,
-      longitude,
-      risk.latitude,
-      risk.longitude
-    );
-    
+
+  cachedRisks.forEach((risk) => {
+    const distance = calculateDistance(latitude, longitude, risk.latitude, risk.longitude);
     if (distance <= LOCATION_CONFIG.alertRadius) {
       nearbyRisks.push({ ...risk, distance });
     }
   });
-  
-  // 2. Créer un Set des IDs de risques à proximité
-  const nearbyRiskIds = new Set(nearbyRisks.map(r => r.id));
-  
-  // 3. Envoyer les notifications
+
+  const nearbyRiskIds = new Set(nearbyRisks.map((r) => r.id));
+
   for (const risk of nearbyRisks) {
     const lastNotification = notificationTimestamps.get(risk.id) || 0;
     const timeSinceLastNotif = now - lastNotification;
     const canNotify = timeSinceLastNotif > NOTIFICATION_COOLDOWN;
-    
+
     if (canNotify || !notifiedRisks.has(risk.id)) {
       console.log(`[BG] 🚨 Notification risque ${risk.id}`);
-      
       try {
         await notifee.displayNotification({
           title: `⚠️ Risque : ${risk.category}`,
@@ -533,12 +442,9 @@ const checkRisksFromCache = async (
             importance: AndroidImportance.HIGH,
             vibrationPattern: [300, 500],
             sound: 'default',
-            pressAction: {
-              id: 'default',
-            },
+            pressAction: { id: 'default' },
           },
         });
-        
         notifiedRisks.add(risk.id);
         notificationTimestamps.set(risk.id, now);
       } catch (error) {
@@ -549,61 +455,54 @@ const checkRisksFromCache = async (
       console.log(`[BG] ⏳ Risque ${risk.id} - cooldown actif (${remainingMinutes}min)`);
     }
   }
-  
-  // 4. Nettoyer le cache
+
   const removedRisks: string[] = [];
-  notifiedRisks.forEach(riskId => {
+  notifiedRisks.forEach((riskId) => {
     if (!nearbyRiskIds.has(riskId)) {
       removedRisks.push(riskId);
       notifiedRisks.delete(riskId);
       notificationTimestamps.delete(riskId);
     }
   });
-  
+
   if (removedRisks.length > 0) {
     console.log(`[BG] 🧹 Nettoyage: ${removedRisks.length} risque(s) retiré(s)`);
   }
-  
+
   return nearbyRisks;
 };
 
-// La tâche en arrière-plan
 export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   console.log('[BG] 🚀 Headless JS Task démarré');
-  
-  // arrêt tache de fond au bout de 4h 
-  const isExpired = await checkMaxDuration();
-  if (isExpired) return; // Si le délai est dépassé, on arrête tout de suite
 
-  // 🆕 VÉRIFIER LE RALENTISSEMENT EN PREMIER
+  const isExpired = await checkMaxDuration();
+  if (isExpired) return;
+
   await checkTaskSlowdown();
-  
-  // Charger la config depuis AsyncStorage
   await loadConfigFromStorage();
-  
+
   return new Promise((resolve) => {
     Geolocation.getCurrentPosition(
       async (position) => {
         try {
           const { latitude, longitude } = position.coords;
           console.log(`[BG] 📍 Position: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-          
-          // Vérifier si le cache doit être rafraîchi
+
           if (shouldRefreshCache(latitude, longitude)) {
             console.log('[BG] 🔄 Refresh du cache nécessaire');
             await refreshRiskCache(latitude, longitude);
           } else {
             console.log(`[BG] ✅ Cache valide (${cachedRisks.length} risques)`);
           }
-          
+
           const nearbyRisks = await checkRisksFromCache(latitude, longitude);
-          
+
           if (nearbyRisks.length > 0) {
-            console.log(`[BG] ⚠️ ${nearbyRisks.length} risque(s) détecté(s) dans ${LOCATION_CONFIG.alertRadius}m`);
+            console.log(`[BG] ⚠️ ${nearbyRisks.length} risque(s) dans ${LOCATION_CONFIG.alertRadius}m`);
           } else {
             console.log(`[BG] ✅ Aucun risque dans ${LOCATION_CONFIG.alertRadius}m`);
           }
-          
+
           resolve();
         } catch (error) {
           console.error('[BG] Erreur dans la tâche:', error);
@@ -614,11 +513,7 @@ export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
         console.error('[BG] Erreur GPS:', error);
         resolve();
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 10000,
-      }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
     );
   });
 };
