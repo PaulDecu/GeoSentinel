@@ -172,9 +172,11 @@ export const locationService = {
       if (tourneeType) {
         console.log(`📡 Récupération paramètres API pour: ${tourneeType}`);
         
-        // ✅ RÉCUPÉRER LES PARAMÈTRES DEPUIS L'API UNE SEULE FOIS
-        const setting: SystemSetting | null = await apiClient.getSystemSettingByType(tourneeType);
-        
+        // ✅ RÉCUPÉRER LES PARAMÈTRES PROPRES AU TENANT depuis l'API (une seule fois)
+        //const setting: SystemSetting | null = await apiClient.getTenantLocationSettingByType(tourneeType);
+        // ✅ Après — paramètres propres au tenant connecté
+        const setting = await apiClient.getTenantLocationSettingByType(tourneeType);
+
         if (setting) {
           console.log(`✅ Paramètres récupérés depuis l'API:`);
           console.log(`   - Type: ${setting.label}`);

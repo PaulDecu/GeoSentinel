@@ -137,14 +137,16 @@ let LOCATION_CONFIG: LocationConfig = {
 
 const notifiedRisks = new Set<string>();
 const notificationTimestamps = new Map<string, number>();
-const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes pour ne pas renvoyer la même notif tout de suite
 
-const EXPECTED_TASK_INTERVAL = 45000;
+// ✅ Initialisé à 45s par défaut, recalculé dynamiquement dans loadConfigFromStorage
+// à partir de positionTestDelaySeconds (paramètre tenant) + 30s de marge.
+let EXPECTED_TASK_INTERVAL = 45000;
 const SLOWDOWN_NOTIFICATION_COOLDOWN = 5 * 60 * 1000;
 let lastSlowdownNotification = 0;
 
-const MAX_TRACKING_DURATION = 12 * 60 * 1000;
-const WARNING_BEFORE_END = 6 * 60 * 1000;
+const MAX_TRACKING_DURATION = 12 * 60 * 1000; // 12 minutes à mettre à 4h
+const WARNING_BEFORE_END = 6 * 60 * 1000;  // 6 minutes avant les 4 heures , à mettre à 15
 let hasSentWarning = false;
 
 const checkMaxDuration = async (): Promise<boolean> => {
@@ -206,11 +208,21 @@ const loadConfigFromStorage = async (): Promise<void> => {
     const apiCallDelayMinutes = await AsyncStorage.getItem('apiCallDelayMinutes');
     const alertRadiusMeters = await AsyncStorage.getItem('alertRadiusMeters');
     const riskLoadZoneKm = await AsyncStorage.getItem('riskLoadZoneKm');
+    const positionTestDelaySeconds = await AsyncStorage.getItem('positionTestDelaySeconds');
 
     if (apiCallDelayMinutes && alertRadiusMeters && riskLoadZoneKm) {
       LOCATION_CONFIG.updateInterval = parseInt(apiCallDelayMinutes) * 60 * 1000;
       LOCATION_CONFIG.alertRadius = parseInt(alertRadiusMeters);
       LOCATION_CONFIG.radiusRecherche = parseInt(riskLoadZoneKm);
+
+      // ✅ Recalcul dynamique de EXPECTED_TASK_INTERVAL :
+      // positionTestDelaySeconds du tenant + 30s de marge pour Android Doze/throttling
+      if (positionTestDelaySeconds) {
+        EXPECTED_TASK_INTERVAL = (parseInt(positionTestDelaySeconds) + 30) * 1000;
+        console.log(`[BG]    - Intervalle attendu: ${parseInt(positionTestDelaySeconds)}s + 30s = ${EXPECTED_TASK_INTERVAL / 1000}s`);
+      } else {
+        console.warn('[BG] ⚠️ positionTestDelaySeconds absent — EXPECTED_TASK_INTERVAL conservé à', EXPECTED_TASK_INTERVAL / 1000, 's');
+      }
 
       console.log(`[BG] ✅ Configuration chargée:`);
       console.log(`[BG]    - Type: ${tourneeType}`);
@@ -478,8 +490,10 @@ export const locationBackgroundTask = async (taskData?: any): Promise<void> => {
   const isExpired = await checkMaxDuration();
   if (isExpired) return;
 
-  await checkTaskSlowdown();
+  // ✅ loadConfigFromStorage en premier : met à jour EXPECTED_TASK_INTERVAL
+  // à partir de positionTestDelaySeconds avant que checkTaskSlowdown s'en serve
   await loadConfigFromStorage();
+  await checkTaskSlowdown();
 
   return new Promise((resolve) => {
     Geolocation.getCurrentPosition(

@@ -20,6 +20,33 @@ export interface SystemSetting {
 
 export type TourneeType = 'pieds' | 'velo' | 'voiture';
 
+
+/**
+ * Paramètres de géolocalisation propres au tenant de l'utilisateur connecté.
+ * Retournés par GET /tenant-location-settings/me
+ */
+export interface TenantLocationSetting {
+  id: string;
+  tenantId: string;
+  // À pieds
+  piedsApiCallDelayMinutes: number;
+  piedsPositionTestDelaySeconds: number;
+  piedsRiskLoadZoneKm: number;
+  piedsAlertRadiusMeters: number;
+  // Vélo
+  veloApiCallDelayMinutes: number;
+  veloPositionTestDelaySeconds: number;
+  veloRiskLoadZoneKm: number;
+  veloAlertRadiusMeters: number;
+  // Voiture
+  voitureApiCallDelayMinutes: number;
+  voiturePositionTestDelaySeconds: number;
+  voitureRiskLoadZoneKm: number;
+  voitureAlertRadiusMeters: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 class ApiClient {
   private client: AxiosInstance;
   private isRefreshing = false;
@@ -225,6 +252,69 @@ class ApiClient {
   }
 
   // ========== SYSTEM SETTINGS ==========
+
+  /**
+   * Récupère les paramètres de géolocalisation propres au tenant
+   * de l'utilisateur connecté. Nécessite un token JWT valide.
+   * Route : GET /tenant-location-settings/me
+   */
+  async getTenantLocationSettings(): Promise<TenantLocationSetting | null> {
+    try {
+      console.log('📡 API call getTenantLocationSettings (tenant-specific)');
+      const response = await this.client.get<TenantLocationSetting>(
+        '/tenant-location-settings/me'
+      );
+      console.log('✅ Tenant location settings received for tenant:', response.data.tenantId);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error getting tenant location settings:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extrait les 4 paramètres pour un type de tournée donné
+   * depuis les paramètres propres au tenant.
+   * Retourne un objet au même format que SystemSetting pour
+   * compatibilité avec le reste du code (locationService, etc.)
+   */
+  async getTenantLocationSettingByType(
+    tourneeType: TourneeType
+  ): Promise<SystemSetting | null> {
+    try {
+      const s = await this.getTenantLocationSettings();
+      if (!s) return null;
+
+      const prefix = tourneeType as 'pieds' | 'velo' | 'voiture';
+
+      // Extraire les champs préfixés et les exposer sous le format SystemSetting
+      const mapped: SystemSetting = {
+        id: s.id,
+        tourneeType,
+        label: prefix === 'pieds' ? 'À pieds' : prefix === 'velo' ? 'Vélo' : 'Voiture',
+        apiCallDelayMinutes:      (s as any)[`${prefix}ApiCallDelayMinutes`],
+        positionTestDelaySeconds: (s as any)[`${prefix}PositionTestDelaySeconds`],
+        riskLoadZoneKm:           (s as any)[`${prefix}RiskLoadZoneKm`],
+        alertRadiusMeters:        (s as any)[`${prefix}AlertRadiusMeters`],
+        dashboardMessage: null,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      };
+
+      console.log(`✅ Tenant setting for ${tourneeType}:`, {
+        apiCallDelayMinutes:      mapped.apiCallDelayMinutes,
+        positionTestDelaySeconds: mapped.positionTestDelaySeconds,
+        riskLoadZoneKm:           mapped.riskLoadZoneKm,
+        alertRadiusMeters:        mapped.alertRadiusMeters,
+      });
+
+      return mapped;
+    } catch (error) {
+      console.error('❌ Error getting tenant location setting by type:', error);
+      return null;
+    }
+  }
+
 
   async getSystemSettings(): Promise<SystemSetting[]> {
     const response = await this.client.get<SystemSetting[]>('/system-settings/public/all');
