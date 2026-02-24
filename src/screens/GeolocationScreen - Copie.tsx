@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
 import  locationService  from '../services/locationService';
 import  notificationService  from '../services/notificationService';
 import  { apiClient }  from '../services/api';
@@ -44,7 +43,6 @@ interface RiskWithDistance {
 }
 
 export default function GeolocationScreen() {
-  const navigation = useNavigation<any>();
   const [isTracking, setIsTracking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<LocationPosition | null>(null);
@@ -414,23 +412,7 @@ const handleStopTracking = async () => {
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>⚠️ Risques à proximité (500m)</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {loadingRisks && <ActivityIndicator size="small" color={COLORS.primary} />}
-                {/* ── Bouton Voir carte ── */}
-                {nearbyRisks.length > 0 && !loadingRisks && (
-                  <TouchableOpacity
-                    style={styles.mapButton}
-                    onPress={() =>
-                      navigation.navigate('RiskMap', {
-                        risks: nearbyRisks,
-                        userPosition: currentPosition,
-                      })
-                    }
-                  >
-                    <Text style={styles.mapButtonText}>🗺️ Carte</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              {loadingRisks && <ActivityIndicator size="small" color={COLORS.primary} />}
             </View>
             
             {nearbyRisks.length === 0 ? (
@@ -869,16 +851,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.success,
-  },
-  mapButton: {
-    backgroundColor: '#1E3A5F',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  mapButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: 'bold',
   },
 });

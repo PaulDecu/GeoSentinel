@@ -115,6 +115,11 @@ export default function AppNavigator() {
               title: '📍 Géolocalisation',
             }}
           />
+          <Stack.Screen
+           name="RiskMap"
+            component={RiskMapScreen}
+            options={{ headerShown: false }}
+          />
 
           <Stack.Screen
             name="ListRisks"
@@ -138,12 +143,6 @@ export default function AppNavigator() {
             options={{
               title: '🔍 Détail du Risque',
             }}
-          />
-
-          <Stack.Screen
-            name="RiskMap"
-            component={RiskMapScreen}
-            options={{ headerShown: false }}
           />
         </Stack.Navigator>
       )}
